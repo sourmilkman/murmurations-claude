@@ -1,7 +1,7 @@
 /* Murmurations — shared utilities, procedural sprites, 3D flocking engine */
 (function () {
   const M = (window.M = window.M || {});
-  M.VERSION = '0.5.0';
+  M.VERSION = '0.6.0';
   M.scenes = M.scenes || {};
   M.sceneOrder = ['starlings', 'locusts', 'fish', 'smoke', 'clouds'];
 
