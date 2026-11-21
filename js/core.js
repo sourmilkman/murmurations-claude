@@ -1,7 +1,7 @@
 /* Murmurations — shared utilities, procedural sprites, 3D flocking engine */
 (function () {
   const M = (window.M = window.M || {});
-  M.VERSION = '0.4.1';
+  M.VERSION = '0.5.0';
   M.scenes = M.scenes || {};
   M.sceneOrder = ['starlings', 'locusts', 'fish', 'smoke', 'clouds'];
 
@@ -76,11 +76,14 @@
   /* ---------- 3D flock (boids w/ topological-ish neighbour cap + fear contagion) ---------- */
   M.Flock = function (cap) {
     const f = { cap, n: 0 };
-    ['px', 'py', 'pz', 'vx', 'vy', 'vz', 'fear', 'turn', 'phase', 'sx', 'sy', 'sc', 'hx', 'hy', 'pref', 'prefT', 'tresp'].forEach((k) => (f[k] = new Float32Array(cap)));
-    const TB = 8192, head = new Int32Array(TB), next = new Int32Array(cap);
+    ['px', 'py', 'pz', 'vx', 'vy', 'vz', 'fear', 'turn', 'phase', 'sx', 'sy', 'sc', 'hx', 'hy', 'pref', 'prefT', 'tresp', 'gdx', 'gdy', 'gdz'].forEach((k) => (f[k] = new Float32Array(cap)));
+    const TB = 32768, head = new Int32Array(TB), next = new Int32Array(cap);
     const kd = new Float32Array(16), ki = new Int32Array(16);
-    const OX = [0, -1, 1, 0, 0, -1, -1, 1, 1], OY = [0, 0, 0, -1, 1, -1, 1, -1, 1];
-    const hash = (ix, iy) => (Math.imul(ix, 73856093) ^ Math.imul(iy, 19349663)) & (TB - 1);
+    // 3D spatial hash, 27 cells, own cell first (a 2D hash let one crowded column dominate everyone's neighbour list)
+    const OX = [], OY = [], OZ = [];
+    OX.push(0); OY.push(0); OZ.push(0);
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) for (let c = -1; c <= 1; c++) if (a || b || c) { OX.push(a); OY.push(b); OZ.push(c); }
+    const hash = (ix, iy, iz) => (Math.imul(ix, 73856093) ^ Math.imul(iy, 19349663) ^ Math.imul(iz, 83492791)) & (TB - 1);
     f.add = function (x, y, z, vx, vy, vz) {
       if (f.n >= cap) return;
       const i = f.n++;
@@ -88,6 +91,7 @@
       f.fear[i] = 0; f.turn[i] = 0; f.phase[i] = Math.random() * 6.283; f.sx[i] = -1e5; f.sy[i] = -1e5; f.sc[i] = 1;
       const l = Math.hypot(vx, vy) || 1; f.hx[i] = vx / l; f.hy[i] = vy / l;
       f.pref[i] = f.prefT[i] = U.rand(0.8, 1.2); f.tresp[i] = U.rand(-0.35, 0.85);
+      const vl = Math.hypot(vx, vy, vz) || 1; f.gdx[i] = vx / vl; f.gdy[i] = vy / vl; f.gdz[i] = vz / vl;
     };
     f.grow = function (target, spread) {
       if (target < f.n) { f.n = Math.max(0, target); return; }
@@ -107,12 +111,18 @@
       }
     };
     f.step = function (dt, P) {
-      const n = f.n, { px, py, pz, vx, vy, vz, fear, turn, phase, sx, sy, sc, hx, hy, pref, prefT, tresp } = f;
+      const n = f.n, { px, py, pz, vx, vy, vz, fear, turn, phase, sx, sy, sc, hx, hy, pref, prefT, tresp, gdx, gdy, gdz } = f;
       const inv = 1 / P.r;
       head.fill(-1);
-      for (let i = 0; i < n; i++) { const h = hash(Math.floor(px[i] * inv), Math.floor(py[i] * inv)); next[i] = head[h]; head[h] = i; }
+      for (let i = 0; i < n; i++) { const h = hash(Math.floor(px[i] * inv), Math.floor(py[i] * inv), Math.floor(pz[i] * inv)); next[i] = head[h]; head[h] = i; }
       const r2 = P.r * P.r, s2 = P.sep * P.sep, T = P.target, K = Math.min(16, P.maxN);
-      const EX = P.exam || 64;
+      let fxS = 0, fyS = 0, fzS = 0;
+      const SPR = P.spring, FL = P.flat || 0;
+      const EX = P.exam || 64, SOFT = !!P.sepSoft, MA = P.maxAcc || 0, FS = P.flockSteer;
+      // flock-level steering: direction from the flock's centre to the goal; the front of the flock learns it first
+      let fdx = 0, fdy = 0, fdz = 0, mvx = f.gvx || 0, mvy = f.gvy || 0, mvz = f.gvz || 0;
+      const mvl = Math.sqrt(mvx * mvx + mvy * mvy + mvz * mvz) + 1e-6;
+      if (FS) { fdx = FS.x - (f.gcx || 0); fdy = (FS.y - (f.gcy || 0)) * 0.7; fdz = FS.z - (f.gcz || 0); const l = Math.sqrt(fdx * fdx + fdy * fdy + fdz * fdz) + 1e-6; fdx /= l; fdy /= l; fdz /= l; }
       const BL = P.blind != null ? P.blind : -2, TU = P.turb, nz3 = M.noise.noise3;
       const decay = Math.pow(P.fearDecay, dt * 60);
       const preds = P.predators, np = preds.length;
@@ -122,12 +132,12 @@
       let svx = 0, svy = 0, svz = 0;
       for (let i = 0; i < n; i++) {
         const x = px[i], y = py[i], z = pz[i];
-        const ix = Math.floor(x * inv), iy = Math.floor(y * inv);
+        const ix = Math.floor(x * inv), iy = Math.floor(y * inv), iz = Math.floor(z * inv);
         let cnt = 0, ax = 0, ay = 0, az = 0, cx = 0, cy = 0, cz = 0, ssx = 0, ssy = 0, ssz = 0, fm = 0, seen = 0, exam = 0, kc = 0, km = 0;
         const vxi = vx[i], vyi = vy[i], vzi = vz[i], vli = Math.sqrt(vxi * vxi + vyi * vyi + vzi * vzi) + 1e-6;
         // own cell first, then the ring — so the nearest birds are found before the cap is hit
-        outer: for (let o = 0; o < 9; o++) {
-          let j = head[hash(ix + OX[o], iy + OY[o])];
+        outer: for (let o = 0; o < 27; o++) {
+          let j = head[hash(ix + OX[o], iy + OY[o], iz + OZ[o])];
           while (j >= 0) {
             if (j !== i) {
               const dx = px[j] - x, dy = py[j] - y, dz = pz[j] - z;
@@ -138,7 +148,11 @@
                 if (behind) { /* in the rear blind cone: not seen */ }
                 else if (kc < K) { kd[kc] = d2; ki[kc] = j; if (d2 > kd[km]) km = kc; kc++; }
                 else if (d2 < kd[km]) { kd[km] = d2; ki[km] = j; km = 0; for (let q = 1; q < K; q++) if (kd[q] > kd[km]) km = q; }
-                if (d2 < s2) { const q = 1 / (d2 + 0.5); ssx -= dx * q; ssy -= dy * q; ssz -= dz * q; }
+                if (d2 < s2) {
+                  let q;
+                  if (SOFT) { const d = Math.sqrt(d2) + 1e-3; q = (1 - d / P.sep) / d; } else q = 1 / (d2 + 0.5);
+                  ssx -= dx * q; ssy -= dy * q; ssz -= dz * q;
+                }
                 if (fear[j] > fm) fm = fear[j];
                 if (++seen >= 40) break outer;
               }
@@ -147,12 +161,20 @@
             j = next[j];
           }
         }
-        let md = 0;
+        let md = 0, spx = 0, spy = 0, spz = 0;
         for (let q = 0; q < kc; q++) {
           const j = ki[q]; cnt++; ax += vx[j]; ay += vy[j]; az += vz[j];
-          cx += px[j] - x; cy += py[j] - y; cz += pz[j] - z; md += Math.sqrt(kd[q]);
+          const ddx = px[j] - x, ddy = py[j] - y, ddz = pz[j] - z, d = Math.sqrt(kd[q]) + 1e-3;
+          cx += ddx; cy += ddy; cz += ddz; md += d;
+          if (SPR) {
+            // 'liquid' spacing: each of the K nearest is held at the preferred distance by a soft spring
+            // (pulls when too far, pushes when too close) -> even density + surface tension at the edge
+            const e = U.clamp((d - SPR.d0) / SPR.d0, -1, 1.5) / d;
+            spx += ddx * e; spy += ddy * e; spz += ddz * e;
+          }
         }
-        let fx = 0, fy = 0, fz = 0;
+        if (SPR && kc) { fxS = spx * SPR.k / kc; fyS = spy * SPR.k / kc; fzS = spz * SPR.k / kc; } else { fxS = fyS = fzS = 0; }
+        let fx = fxS, fy = fyS, fz = fzS;
         const fr = fear[i];
         if (cnt) {
           // border birds (neighbours all on one side) pull inward hardest -> crisp, dense flock edges
@@ -164,6 +186,8 @@
         fx += ssx * P.wSep; fy += ssy * P.wSep; fz += ssz * P.wSep;
         // weak whole-flock cohesion keeps one mass (birds track the flock's centre, not just 7 neighbours)
         if (GC) { fx += (gcx - x) * GC; fy += (gcy - y) * GC; fz += (gcz - z) * GC; }
+        // keep the flock a thin, near-horizontal sheet (real flocks are thinnest in the vertical)
+        if (FL) fy += (gcy - y) * FL;
         // ...and its mean heading, which damps sub-flocks orbiting each other so they re-merge
         if (GA) { fx += (gvx - vx[i]) * GA; fy += (gvy - vy[i]) * GA; fz += (gvz - vz[i]) * GA; }
         // gentle turbulent wind (adds slow undulation through the flock)
@@ -173,6 +197,16 @@
         }
         // random individual perturbation
         if (P.noise) { fx += (Math.random() - 0.5) * P.noise; fy += (Math.random() - 0.5) * P.noise; fz += (Math.random() - 0.5) * P.noise; }
+        if (FS) {
+          // each bird's sense of 'where we're going' relaxes toward the flock's goal heading;
+          // birds at the front (along the travel direction) update first -> turns roll through the flock as a wave
+          const front = ((x - (f.gcx || 0)) * mvx + (y - (f.gcy || 0)) * mvy + (z - (f.gcz || 0)) * mvz) / (mvl * FS.span);
+          const rate = FS.rate * U.clamp(1 + front * (FS.lead || 1.6), 0.12, 4);
+          const kk = Math.min(1, dt * rate);
+          gdx[i] += (fdx - gdx[i]) * kk; gdy[i] += (fdy - gdy[i]) * kk; gdz[i] += (fdz - gdz[i]) * kk;
+          const vb = (P.vmin + P.vmax) * 0.5;
+          fx += (gdx[i] * vb - vx[i]) * FS.w; fy += (gdy[i] * vb - vy[i]) * FS.w; fz += (gdz[i] * vb - vz[i]) * FS.w;
+        }
         const G = P.goal;
         if (G) {
           // roost-seeking: each bird turns back independently once it strays past G.R -> folds, swoops, no orbiting ring
@@ -222,14 +256,16 @@
         if (qx > P.xMax) fx -= ((qx - P.xMax) / (s * P.unit)) * P.boundK;
         if (z < P.zMin) fz += (P.zMin - z) * 2; if (z > P.zMax) fz -= (z - P.zMax) * 2;
         fy -= vy[i] * P.vdamp; fz -= vz[i] * P.vdamp * 0.5;
+        if (MA) { const fa = Math.sqrt(fx * fx + fy * fy + fz * fz); if (fa > MA * (1 + nf)) { const k = (MA * (1 + nf)) / fa; fx *= k; fy *= k; fz *= k; } }
         // integrate
         let nvx = vx[i] + fx * dt, nvy = vy[i] + fy * dt, nvz = vz[i] + fz * dt;
         // individual, wandering speed preference + surge/brake when changing direction
-        if (Math.random() < dt * 0.35) prefT[i] = U.rand(0.7, 1.32);
-        pref[i] += (prefT[i] - pref[i]) * Math.min(1, dt * 0.9);
+        const PV = P.prefVar != null ? P.prefVar : 0.3;
+        if (Math.random() < dt * 0.35) prefT[i] = 1 + U.rand(-PV, PV);
+        pref[i] += (prefT[i] - pref[i]) * Math.min(1, dt * (P.prefRate || 0.9));
         const sp = Math.sqrt(nvx * nvx + nvy * nvy + nvz * nvz) + 1e-6;
         const boost = 1 + nf * P.fearBoost;
-        let tgt = (P.vmin + P.vmax) * 0.5 * pref[i] * (1 + tresp[i] * Math.min(1, turn[i] * 0.6)) * boost;
+        let tgt = (P.vmin + P.vmax) * 0.5 * pref[i] * (1 + tresp[i] * (P.turnResp != null ? P.turnResp : 1) * Math.min(1, turn[i] * 0.6)) * boost;
         tgt = tgt < P.vmin * 0.6 ? P.vmin * 0.6 : tgt > P.vmax * boost * 1.25 ? P.vmax * boost * 1.25 : tgt;
         const nsp = sp + (tgt - sp) * Math.min(1, dt * (P.accel || 1.6));
         { const k = nsp / sp; nvx *= k; nvy *= k; nvz *= k; }

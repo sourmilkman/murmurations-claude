@@ -19,8 +19,8 @@
   let paths = [], cen = [0, 0];
 
   // each simulated bird is drawn as K followers (cluster impostors) -> ~48k visible birds on desktop
-  const K = 6, CL = 6.8, POOL = M.clusterPool(K, 0.45, 11);
-  function want(env) { return Math.round((env.mobile ? 3600 : 8000) * env.density * env.quality); }
+  const K = 7, CL = 7.2, POOL = M.clusterPool(K, 0.45, 11);
+  function want(env) { return Math.round((env.mobile ? 3000 : 6800) * env.density * env.quality); }
 
   S.init = function (env, meta) {
     bg = meta; t = Math.random() * 100;
@@ -33,7 +33,7 @@
       const a = Math.random() * 6.283, r = Math.cbrt(Math.random()) * 150;
       fl.add(G.x + Math.cos(a) * r * 1.4, G.y + U.gauss() * 25, G.z + Math.sin(a) * r, 130 + U.gauss() * 10, U.gauss() * 6, U.gauss() * 10);
     }
-    falcon.on = false; falcon.wait = 8;
+    falcon.on = false; falcon.wait = U.rand(40, 70);
   };
   S.setBg = function (env, meta) { bg = meta; S.resize(env); };
   S.resize = function (env) {
@@ -52,7 +52,7 @@
       const yc = (syT - cam.cy) / (s * u);
       WP.x = (sxT - cam.cx) / (s * u); WP.y = (yc - z * sa) / ca; WP.z = z;
     }
-    const k = Math.min(1, dt * 0.35);
+    const k = Math.min(1, dt * 0.2);
     G.x += (WP.x - G.x) * k; G.y += (WP.y - G.y) * k; G.z += (WP.z - G.z) * k;
     G.R = 150 + 50 * Math.sin(t * 0.07);
     T.x = G.x; T.y = G.y; T.z = G.z;
@@ -67,7 +67,7 @@
     const R = 55 * Math.max(env.unit, 0.75);
     if (inp.active) preds.push({ x: inp.x, y: inp.y, z: T.z, r: env.mode === 'attract' ? R * 1.6 : R, str: env.mode === 'attract' ? -320 : 1500 });
     // a peregrine stoops when nobody is playing
-    if (env.t - inp.lastAny > 12) {
+    if (env.t - inp.lastAny > 30) {
       falcon.wait -= dt;
       if (!falcon.on && falcon.wait <= 0) {
         const fromLeft = Math.random() < 0.5;
@@ -82,13 +82,14 @@
     if (falcon.on) {
       falcon.x += falcon.vx * dt; falcon.y += falcon.vy * dt; falcon.vy += 30 * dt; falcon.ph += dt * 7;
       preds.push({ x: falcon.x, y: falcon.y, z: T.z, r: 70 * Math.max(env.unit, 0.75), str: 1500 });
-      if (falcon.x < -120 || falcon.x > env.W + 120 || falcon.y > env.H + 80 || falcon.y < -200) { falcon.on = false; falcon.wait = U.rand(10, 18); }
+      if (falcon.x < -120 || falcon.x > env.W + 120 || falcon.y > env.H + 80 || falcon.y < -200) { falcon.on = false; falcon.wait = U.rand(45, 90); }
     }
     fl.step(dt, {
-      r: 60, sep: 14, wSep: 1700, wAli: 2.6, wCoh: 1.0, border: 2.4, gcoh: 0.07, gali: 0.5, noise: 18, accel: 1.4, fearAli: 1.6, vmin: 62, vmax: 112, maxN: 7,
-      blind: -0.5, turb: { amp: 20, scale: 0.0035, t: t * 0.12 },
+      r: 24, exam: 100, sep: 9, wSep: 200, sepSoft: true, wAli: 3.2, wCoh: 0, border: 0, gcoh: 0.05, gali: 0.4, spring: { d0: 15, k: 340 }, flat: 0.26, noise: 3, accel: 0.9, fearAli: 1.6, vmin: 70, vmax: 104, maxN: 7,
+      blind: -0.5, turb: { amp: 21, scale: 0.0035, t: t * 0.09 }, maxAcc: 170, prefVar: 0.07, prefRate: 0.4, turnResp: 0.25,
+      flockSteer: { x: G.x, y: G.y, z: G.z, w: 0.6, rate: 0.6, span: 120, lead: 2.5 },
       fearDecay: 0.962, fearSpread: 0.93, fearBoost: 0.6, vdamp: 0.2, flap: 12,
-      target: null, goal: G, predators: preds, unit: env.unit * ZOOM, boundK: 12,
+      target: null, goal: null, predators: preds, unit: env.unit * ZOOM, boundK: 12,
       yMin: env.H * 0.1, yMax: hy - 14 * env.unit, xMin: env.W * 0.06, xMax: env.W * 0.94, zMin: -300, zMax: 900,
     });
     fl.project(cam.cx, cam.cy, cam.F, env.unit * ZOOM, cam.pitch);
@@ -144,6 +145,14 @@
     }
   };
 
+  S.debug = function () {
+    const n = fl.n; let cx = 0, cy = 0, cz = 0;
+    for (let i = 0; i < n; i++) { cx += fl.px[i]; cy += fl.py[i]; cz += fl.pz[i]; }
+    cx /= n; cy /= n; cz /= n; let rx = 0, ry = 0, rz = 0, nn = 0, sp = 0;
+    for (let i = 0; i < n; i++) { rx += Math.abs(fl.px[i] - cx); ry += Math.abs(fl.py[i] - cy); rz += Math.abs(fl.pz[i] - cz); sp += Math.hypot(fl.vx[i], fl.vy[i], fl.vz[i]); }
+    for (let i = 0; i < 400; i++) { const a = (Math.random() * n) | 0; let best = 1e9; for (let j = 0; j < n; j++) { if (j === a) continue; const d = (fl.px[j] - fl.px[a]) ** 2 + (fl.py[j] - fl.py[a]) ** 2 + (fl.pz[j] - fl.pz[a]) ** 2; if (d < best) best = d; } nn += Math.sqrt(best); }
+    return { n, mad: [rx / n, ry / n, rz / n].map(Math.round), nn: +(nn / 400).toFixed(1), speed: Math.round(sp / n) };
+  };
   S.audioState = function (env) {
     return { ag: U.clamp(fl.meanFear * 2.2 + fl.meanTurn * 0.25, 0, 1) };
   };
