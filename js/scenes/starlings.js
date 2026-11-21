@@ -18,7 +18,9 @@
   const falcon = { on: false, x: 0, y: 0, vx: 0, vy: 0, wait: 9, ph: 0 };
   let paths = [], cen = [0, 0];
 
-  function want(env) { return Math.round((env.mobile ? 6500 : 13600) * env.density * env.quality); }
+  // each simulated bird is drawn as K followers (cluster impostors) -> ~48k visible birds on desktop
+  const K = 6, CL = 6.8, POOL = M.clusterPool(K, 0.45, 11);
+  function want(env) { return Math.round((env.mobile ? 3600 : 8000) * env.density * env.quality); }
 
   S.init = function (env, meta) {
     bg = meta; t = Math.random() * 100;
@@ -46,7 +48,7 @@
       WP.next = U.rand(6, 13);
       const z = U.rand(0, 260), ca = Math.cos(cam.pitch), sa = Math.sin(cam.pitch);
       const s = cam.F / (cam.F + z * ca), u = env.unit * ZOOM;
-      const sxT = env.W * U.rand(0.25, 0.75), syT = U.lerp(env.H * 0.16, hy - (hy - env.H * 0.16) * 0.3, Math.random());
+      const sxT = env.W * U.rand(0.32, 0.68), syT = U.lerp(env.H * 0.16, hy - (hy - env.H * 0.16) * 0.3, Math.random());
       const yc = (syT - cam.cy) / (s * u);
       WP.x = (sxT - cam.cx) / (s * u); WP.y = (yc - z * sa) / ca; WP.z = z;
     }
@@ -83,10 +85,11 @@
       if (falcon.x < -120 || falcon.x > env.W + 120 || falcon.y > env.H + 80 || falcon.y < -200) { falcon.on = false; falcon.wait = U.rand(10, 18); }
     }
     fl.step(dt, {
-      r: 50, sep: 10.5, wSep: 1150, wAli: 2.6, wCoh: 1.8, border: 4, gcoh: 0.3, gali: 0.45, noise: 22, accel: 1.4, fearAli: 1.6, vmin: 62, vmax: 112, maxN: 7,
+      r: 60, sep: 14, wSep: 1700, wAli: 2.6, wCoh: 1.0, border: 2.4, gcoh: 0.07, gali: 0.5, noise: 18, accel: 1.4, fearAli: 1.6, vmin: 62, vmax: 112, maxN: 7,
+      blind: -0.5, turb: { amp: 20, scale: 0.0035, t: t * 0.12 },
       fearDecay: 0.962, fearSpread: 0.93, fearBoost: 0.6, vdamp: 0.2, flap: 12,
-      target: null, goal: G, predators: preds, unit: env.unit * ZOOM, boundK: 6,
-      yMin: env.H * 0.03, yMax: hy - 14 * env.unit, xMin: -60, xMax: env.W + 60, zMin: -300, zMax: 900,
+      target: null, goal: G, predators: preds, unit: env.unit * ZOOM, boundK: 12,
+      yMin: env.H * 0.1, yMax: hy - 14 * env.unit, xMin: env.W * 0.06, xMax: env.W * 0.94, zMin: -300, zMax: 900,
     });
     fl.project(cam.cx, cam.cy, cam.F, env.unit * ZOOM, cam.pitch);
     cen = fl.centroid();
@@ -95,31 +98,37 @@
   S.draw = function (ctx, env) {
     for (let b = 0; b < 8; b++) paths[b] = new Path2D();
     const { sx, sy, sc, vx, vy, vz, turn, phase } = fl;
-    const span = 2.9 * env.unit, W = env.W, H = env.H;
+    const span = 2.5 * env.unit, W = env.W, H = env.H, zu = env.unit * ZOOM;
+    const ca = Math.cos(cam.pitch), sa = Math.sin(cam.pitch);
     for (let i = 0; i < fl.n; i++) {
-      const x = sx[i], y = sy[i];
-      if (x < -10 || x > W + 10 || y < -10 || y > H + 10) continue;
+      const x0 = sx[i], y0 = sy[i];
+      if (x0 < -30 || x0 > W + 30 || y0 < -30 || y0 > H + 30) continue;
       const s = sc[i];
       const hl = Math.hypot(vx[i], vy[i]) + 1e-6, hx = vx[i] / hl, hy2 = vy[i] / hl;
-      const side = hl / (Math.hypot(hl, vz[i]) + 1e-6);
       const tr = Math.min(1, turn[i] * 1.4);
-      const sp = span * s * (0.85 + 0.35 * tr), half = sp * 0.5;
-      const ph = Math.sin(phase[i]);
-      const flapY = -ph * sp * 0.3, sweep = sp * (0.12 + 0.12 * side);
-      const wx = -hy2 * half, wy = hx * half, bx = -hx * sweep, by = -hy2 * sweep;
+      // banking: wings tilt toward the viewer in turns -> longer, darker dashes sweep through the flock
+      const bank = 0.7 + 0.55 * tr;
       const d = U.clamp(((s - 0.5) / 0.85) * 4, 0, 3.99) | 0;
       const p = paths[d * 2 + (tr > 0.35 ? 1 : 0)];
-      p.moveTo(x + wx + bx, y + wy + by + flapY);
-      p.lineTo(x, y);
-      p.lineTo(x - wx + bx, y - wy + by + flapY);
+      const wx = -hy2, wy = hx, cs = CL * s * zu;
+      const base = ((i * 2654435761) >>> 26) * K * 4;
+      for (let k = 0; k < K; k++) {
+        const o = base + k * 4;
+        const x = x0 + POOL[o] * cs, y = y0 + (POOL[o + 1] * ca + POOL[o + 2] * sa) * cs;
+        // a starling at distance reads as a short wing-dash, flickering with the wingbeat
+        const half = span * s * bank * (0.45 + 0.55 * Math.abs(Math.sin(phase[i] + POOL[o + 3]))) * 0.5;
+        p.moveTo(x + wx * half - hx * half * 0.25, y + wy * half - hy2 * half * 0.25);
+        p.lineTo(x - wx * half - hx * half * 0.25, y - wy * half - hy2 * half * 0.25);
+      }
     }
-    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.lineCap = 'round';
     for (let d = 0; d < 4; d++) {
       const far = 1 - d / 3;
-      const col = U.mix(bg.ink, bg.haze, far * 0.5);
+      const col = U.mix(bg.ink, bg.haze, far * 0.45);
       for (let k = 0; k < 2; k++) {
-        ctx.strokeStyle = U.rgba(col, (0.5 + 0.45 * (d / 3)) * (k ? 1 : 0.9));
-        ctx.lineWidth = Math.max(0.6, env.unit * (0.6 + d * 0.22) * (k ? 1.3 : 1));
+        // partial opacity: overlapping birds build up density, so folds read darker (volumetric look)
+        ctx.strokeStyle = U.rgba(col, (0.5 + 0.3 * (d / 3)) * (k ? 1.15 : 1));
+        ctx.lineWidth = Math.max(0.7, env.unit * (0.85 + d * 0.15) * (k ? 1.25 : 1));
         ctx.stroke(paths[d * 2 + k]);
       }
     }

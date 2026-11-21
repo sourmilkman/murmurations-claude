@@ -141,7 +141,7 @@
       [118, 126, 133].forEach((f) => { const o = c.osc('sawtooth', f); c.lfo(U.rand(0.2, 0.5), 3, o.frequency); o.connect(lp); });
       c.every(0.02, 0.1, () => c.click(U.rand(1500, 4200), 0.003, U.rand(0.008, 0.03) * (1 + ag), U.rand(-0.9, 0.9), 0, 2));
       c.every(0.5, 1.8, () => c.crickets(0.01));
-      return { bed, update(st) { ag = st.ag || 0; swarm.gain.setTargetAtTime(0.15 + ag * 0.3, c.now(), 0.3); } };
+      return { bed, update(st) { ag = st.ag || 0; const fly = st.fly == null ? 1 : st.fly; swarm.gain.setTargetAtTime((0.15 + ag * 0.3) * (0.06 + 0.94 * fly), c.now(), 0.6); } };
     },
     fish(c) {
       let ag = 0;

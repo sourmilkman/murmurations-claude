@@ -1,5 +1,5 @@
 /* Murmurations service worker — offline-first */
-const VERSION = 'murmurations-v0.3.0';
+const VERSION = 'murmurations-v0.4.0';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',
   'js/noise.js', 'js/core.js', 'js/audio.js', 'js/caustics.js', 'js/main.js',

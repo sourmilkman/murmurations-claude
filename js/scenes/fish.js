@@ -18,7 +18,9 @@
   const shark = { on: false, x: 0, y: 0, vx: 0, vy: 0, wait: 10, ph: 0 };
   let snow = [], bubbles = [], rays = [], paths = [], yTop = 0, yBot = 0;
 
-  function want(env, k) { return Math.round((env.mobile ? 4600 : 11000) * SHARE[k] * env.density * env.quality); }
+  // each simulated fish is drawn as KF followers (cluster impostors) -> ~16k visible fish on desktop
+  const KF = 3, CLF = 6.5, POOLF = M.clusterPool(KF, 0.6, 23);
+  function want(env, k) { return Math.round((env.mobile ? 2300 : 5400) * SHARE[k] * env.density * env.quality); }
 
   S.init = function (env, meta) {
     bg = meta; t = Math.random() * 50;
@@ -57,7 +59,7 @@
     const big = sc.k ? 0.6 : 1;
     T.rx = big * U.lerp((230 + Vw * 0.2) * (1 + 0.3 * Math.sin(t * 0.08)), 230, m);
     T.ry = big * U.lerp(Math.max(70, Vh * 0.32) * (1 + 0.35 * Math.sin(t * 0.11 + 1)), 190, m);
-    T.rz = big * U.lerp(200, 230, m);
+    T.rz = big * U.lerp(110, 120, m);
   }
 
   S.onPointerDown = function (env) {
@@ -97,7 +99,7 @@
       const n = want(env, sc.k);
       if (Math.abs(fl.n - n) > 30) fl.grow(n, 4);
       fl.step(dt, {
-        r: 34, sep: 11, wSep: 1100, wAli: 3.4, wCoh: 1.8, border: 2.5, gcoh: 0.05, noise: 20, fearAli: 0.6, vmin: 45, vmax: 110, maxN: 9, accel: 2.2,
+        r: 38, sep: 13, wSep: 1400, wAli: 3.4, wCoh: 1.8, border: 2.5, gcoh: 0.05, noise: 20, fearAli: 0.6, vmin: 45, vmax: 110, maxN: 9, accel: 2.2,
         contain: 95, mill: sc.m * 70 * sc.dir, fearDecay: 0.95, fearSpread: 0.9, fearBoost: 1.5, vdamp: 0.9, flap: 15,
         target: sc.T, predators: preds, unit: env.unit * ZOOM, boundK: 8,
         yMin: yTop + 10, yMax: yBot - 10, xMin: -60, xMax: env.W + 60, zMin: -240, zMax: 700,
@@ -162,7 +164,7 @@
     const NB = 7;
     for (let b = 0; b < NB * 3; b++) paths[b] = new Path2D();
     const backs = [new Path2D(), new Path2D(), new Path2D()];
-    const L0 = 30 * Math.max(env.unit, 0.7);
+    const L0 = 27 * Math.max(env.unit, 0.7), zu = env.unit * ZOOM;
     for (const school of schools) {
       const fl = school.fl;
       const { sx, sy, sc, vx, vy, vz, turn, phase, fear, px, py, pz } = fl;
@@ -178,16 +180,21 @@
         // self-shading: light is absorbed by the fish above and around -> darker heart and underside of a dense ball
         const ex = (px[i] - T.x) / T.rx, ey = (py[i] - T.y) / T.ry, ez = (pz[i] - T.z) / T.rz;
         const inner = 1 - Math.min(1, Math.sqrt(ex * ex + ey * ey + ez * ez));
-        v *= U.clamp(1 - inner * 0.4 - Math.max(0, ey) * 0.25, 0.45, 1);
-        v = U.clamp(v + (((i * 2654435761) >>> 0) / 4294967296 - 0.5) * 0.3, 0, 0.999);
+        v *= U.clamp(1 - inner * 0.3 - Math.max(0, ey) * 0.25, 0.5, 1);
         const d = s < 0.75 ? 0 : s < 1.05 ? 1 : 2;
-        const hx = vx[i] / hl, hy = vy[i] / hl, L = L0 * s;
-        fishPath(paths[d * NB + ((v * NB) | 0)], x, y, hx, hy, L, side, phase[i]);
-        // countershading: dark dorsal line along the back (toward the light / screen-up)
+        const hx = vx[i] / hl, hy = vy[i] / hl, L = L0 * s, cs = CLF * s * zu;
         let nx = -hy, ny = hx; if (ny > 0) { nx = -nx; ny = -ny; }
         const Ls = L * (0.32 + 0.68 * side), o = L * 0.06;
-        backs[d].moveTo(x + hx * Ls * 0.42 + nx * o, y + hy * Ls * 0.42 + ny * o);
-        backs[d].lineTo(x - hx * Ls * 0.3 + nx * o, y - hy * Ls * 0.3 + ny * o);
+        const base = ((i * 2654435761) >>> 26) * KF * 4;
+        for (let k = 0; k < KF; k++) {
+          const q = base + k * 4, fx = x + POOLF[q] * cs, fy = y + POOLF[q + 1] * cs;
+          // each follower rolls on its own -> flicker of silver across the ball
+          const vk = U.clamp(v + Math.sin(phase[i] * 0.11 + POOLF[q + 3]) * 0.16 + (POOLF[q + 3] / 6.283 - 0.5) * 0.22, 0, 0.999);
+          fishPath(paths[d * NB + ((vk * NB) | 0)], fx, fy, hx, hy, L * (0.9 + 0.2 * POOLF[q + 2]), side, phase[i] + POOLF[q + 3]);
+          // countershading: dark dorsal line along the back (toward the light / screen-up)
+          backs[d].moveTo(fx + hx * Ls * 0.42 + nx * o, fy + hy * Ls * 0.42 + ny * o);
+          backs[d].lineTo(fx - hx * Ls * 0.3 + nx * o, fy - hy * Ls * 0.3 + ny * o);
+        }
       }
     }
     const dark = [22, 28, 34], silver = [236, 242, 245];
@@ -195,7 +202,7 @@
       const haze = [0.36, 0.16, 0.02][d];
       for (let b = 0; b < NB; b++) {
         const col = U.mix(U.mix(dark, silver, Math.pow((b + 0.5) / NB, 1.2)), bg.water, haze);
-        ctx.fillStyle = U.rgba(col, 0.82 + 0.15 * (b / NB));
+        ctx.fillStyle = U.rgba(col, 0.92 + 0.08 * (b / NB));
         ctx.fill(paths[d * NB + b]);
       }
       ctx.strokeStyle = U.rgba(U.mix([14, 22, 30], bg.water, haze), 0.6);

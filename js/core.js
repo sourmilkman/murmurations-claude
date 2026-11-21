@@ -1,7 +1,7 @@
 /* Murmurations — shared utilities, procedural sprites, 3D flocking engine */
 (function () {
   const M = (window.M = window.M || {});
-  M.VERSION = '0.3.0';
+  M.VERSION = '0.4.0';
   M.scenes = M.scenes || {};
   M.sceneOrder = ['starlings', 'locusts', 'fish', 'smoke', 'clouds'];
 
@@ -112,6 +112,7 @@
       head.fill(-1);
       for (let i = 0; i < n; i++) { const h = hash(Math.floor(px[i] * inv), Math.floor(py[i] * inv)); next[i] = head[h]; head[h] = i; }
       const r2 = P.r * P.r, s2 = P.sep * P.sep, T = P.target, K = Math.min(16, P.maxN);
+      const BL = P.blind != null ? P.blind : -2, TU = P.turb, nz3 = M.noise.noise3;
       const decay = Math.pow(P.fearDecay, dt * 60);
       const preds = P.predators, np = preds.length;
       let fearSum = 0, turnSum = 0, gx = 0, gy = 0, gz = 0;
@@ -122,6 +123,7 @@
         const x = px[i], y = py[i], z = pz[i];
         const ix = Math.floor(x * inv), iy = Math.floor(y * inv);
         let cnt = 0, ax = 0, ay = 0, az = 0, cx = 0, cy = 0, cz = 0, ssx = 0, ssy = 0, ssz = 0, fm = 0, seen = 0, exam = 0, kc = 0, km = 0;
+        const vxi = vx[i], vyi = vy[i], vzi = vz[i], vli = Math.sqrt(vxi * vxi + vyi * vyi + vzi * vzi) + 1e-6;
         // own cell first, then the ring — so the nearest birds are found before the cap is hit
         outer: for (let o = 0; o < 9; o++) {
           let j = head[hash(ix + OX[o], iy + OY[o])];
@@ -131,7 +133,9 @@
               const d2 = dx * dx + dy * dy + dz * dz;
               if (d2 < r2) {
                 // keep the K nearest (topological interaction, as measured in real starling flocks)
-                if (kc < K) { kd[kc] = d2; ki[kc] = j; if (d2 > kd[km]) km = kc; kc++; }
+                const behind = BL > -1 && (dx * vxi + dy * vyi + dz * vzi) < BL * Math.sqrt(d2) * vli;
+                if (behind) { /* in the rear blind cone: not seen */ }
+                else if (kc < K) { kd[kc] = d2; ki[kc] = j; if (d2 > kd[km]) km = kc; kc++; }
                 else if (d2 < kd[km]) { kd[km] = d2; ki[km] = j; km = 0; for (let q = 1; q < K; q++) if (kd[q] > kd[km]) km = q; }
                 if (d2 < s2) { const q = 1 / (d2 + 0.5); ssx -= dx * q; ssy -= dy * q; ssz -= dz * q; }
                 if (fear[j] > fm) fm = fear[j];
@@ -161,6 +165,11 @@
         if (GC) { fx += (gcx - x) * GC; fy += (gcy - y) * GC; fz += (gcz - z) * GC; }
         // ...and its mean heading, which damps sub-flocks orbiting each other so they re-merge
         if (GA) { fx += (gvx - vx[i]) * GA; fy += (gvy - vy[i]) * GA; fz += (gvz - vz[i]) * GA; }
+        // gentle turbulent wind (adds slow undulation through the flock)
+        if (TU) {
+          const q = TU.scale;
+          fx += nz3(x * q, y * q, TU.t) * TU.amp; fy += nz3(x * q + 31.7, z * q, TU.t) * TU.amp * 0.6; fz += nz3(z * q, y * q + 17.3, TU.t) * TU.amp;
+        }
         // random individual perturbation
         if (P.noise) { fx += (Math.random() - 0.5) * P.noise; fy += (Math.random() - 0.5) * P.noise; fz += (Math.random() - 0.5) * P.noise; }
         const G = P.goal;
@@ -286,5 +295,21 @@
       return out;
     };
     return w;
+  };
+
+  /* ---------- cluster impostors: each simulated agent is drawn as K followers ----------
+     A pool of 64 offset patterns (unit-sphere, flattened by fy) so neighbouring clusters never repeat. */
+  M.clusterPool = function (K, fy, seed) {
+    const r = M.noise.rng(seed || 7), n = 64, out = new Float32Array(n * K * 4);
+    for (let p = 0; p < n; p++) {
+      for (let k = 0; k < K; k++) {
+        let x, y, z;
+        if (k === 0) { x = y = z = 0; }
+        else { do { x = r() * 2 - 1; y = r() * 2 - 1; z = r() * 2 - 1; } while (x * x + y * y + z * z > 1); }
+        const o = (p * K + k) * 4;
+        out[o] = x; out[o + 1] = y * fy; out[o + 2] = z; out[o + 3] = r() * 6.283; // phase offset
+      }
+    }
+    return out;
   };
 })();
