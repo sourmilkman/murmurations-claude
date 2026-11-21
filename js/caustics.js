@@ -26,7 +26,7 @@ void main(){
   float fade=smoothstep(0.,.18,dz);
   col+=uCol*caustic(p,uT*1.15)*uSurfI*fade;}
  gl_FragColor=vec4(col,1.);}`;
-  let cv = null, gl = null, prog = null, U = {}, ok = false, on = false, meta = null;
+  let cv = null, gl = null, prog = null, U = {}, ok = false, on = false, meta = null, frameN = 0;
   function setup() {
     if (cv) return ok;
     cv = document.createElement('canvas');
@@ -34,8 +34,9 @@ void main(){
     cv.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;mix-blend-mode:screen;opacity:0;transition:opacity 1.2s ease;pointer-events:none';
     const c = document.getElementById('c');
     c.parentNode.insertBefore(cv, c);
-    gl = cv.getContext('webgl', { alpha: false, antialias: false, premultipliedAlpha: false });
+    gl = cv.getContext('webgl', { alpha: false, antialias: false, premultipliedAlpha: false, powerPreference: 'low-power' });
     if (!gl) return (ok = false);
+    cv.addEventListener('webglcontextlost', (e) => { e.preventDefault(); ok = false; cv.style.opacity = '0'; });
     const sh = (type, src) => { const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s); return s; };
     prog = gl.createProgram();
     gl.attachShader(prog, sh(gl.VERTEX_SHADER, VS)); gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, FS));
@@ -52,8 +53,9 @@ void main(){
     enable(m) { meta = m; if (!setup()) return; on = true; cv.style.opacity = '1'; },
     disable() { on = false; if (cv) cv.style.opacity = '0'; },
     render(t, env) {
-      if (!on || !ok || !meta) return;
-      const q = 0.7 * Math.min(env.dpr, 1.25) * Math.max(0.6, env.quality);
+      if (!on || !ok || !meta || gl.isContextLost()) return;
+      if ((frameN = (frameN + 1) & 1)) return; // 30 fps is plenty for slow caustics
+      const q = 0.42 * Math.max(0.6, env.quality);
       const w = Math.max(2, Math.round(env.W * q)), h = Math.max(2, Math.round(env.H * q));
       if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
       gl.viewport(0, 0, w, h);

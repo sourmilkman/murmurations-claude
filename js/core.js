@@ -1,7 +1,7 @@
 /* Murmurations — shared utilities, procedural sprites, 3D flocking engine */
 (function () {
   const M = (window.M = window.M || {});
-  M.VERSION = '0.4.0';
+  M.VERSION = '0.4.1';
   M.scenes = M.scenes || {};
   M.sceneOrder = ['starlings', 'locusts', 'fish', 'smoke', 'clouds'];
 
@@ -112,6 +112,7 @@
       head.fill(-1);
       for (let i = 0; i < n; i++) { const h = hash(Math.floor(px[i] * inv), Math.floor(py[i] * inv)); next[i] = head[h]; head[h] = i; }
       const r2 = P.r * P.r, s2 = P.sep * P.sep, T = P.target, K = Math.min(16, P.maxN);
+      const EX = P.exam || 64;
       const BL = P.blind != null ? P.blind : -2, TU = P.turb, nz3 = M.noise.noise3;
       const decay = Math.pow(P.fearDecay, dt * 60);
       const preds = P.predators, np = preds.length;
@@ -142,7 +143,7 @@
                 if (++seen >= 40) break outer;
               }
             }
-            if (++exam >= 64) break outer;
+            if (++exam >= EX) break outer;
             j = next[j];
           }
         }
@@ -312,4 +313,26 @@
     }
     return out;
   };
+
+  /* ---------- reusable path buffer: same API subset as Path2D, but allocated once and reset each frame ---------- */
+  M.PathBuf = function () {
+    const b = { a: new Float32Array(3 * 8192), n: 0 };
+    function grow(k) { if (b.n + k > b.a.length) { const na = new Float32Array(Math.max(b.a.length * 2, b.n + k)); na.set(b.a); b.a = na; } }
+    b.reset = function () { b.n = 0; return b; };
+    b.moveTo = function (x, y) { grow(3); const a = b.a; a[b.n++] = 0; a[b.n++] = x; a[b.n++] = y; };
+    b.lineTo = function (x, y) { grow(3); const a = b.a; a[b.n++] = 1; a[b.n++] = x; a[b.n++] = y; };
+    b.closePath = function () { grow(3); b.a[b.n] = 2; b.n += 3; };
+    b.trace = function (ctx) {
+      ctx.beginPath();
+      const a = b.a, n = b.n;
+      for (let i = 0; i < n; i += 3) {
+        const c = a[i];
+        if (c === 0) ctx.moveTo(a[i + 1], a[i + 2]); else if (c === 1) ctx.lineTo(a[i + 1], a[i + 2]); else ctx.closePath();
+      }
+    };
+    b.stroke = function (ctx) { if (b.n) { b.trace(ctx); ctx.stroke(); } };
+    b.fill = function (ctx) { if (b.n) { b.trace(ctx); ctx.fill(); } };
+    return b;
+  };
+  M.pathBufs = function (arr, n) { for (let i = 0; i < n; i++) arr[i] = arr[i] ? arr[i].reset() : M.PathBuf(); return arr; };
 })();

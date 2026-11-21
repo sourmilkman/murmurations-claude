@@ -17,13 +17,13 @@
   /* ---------- environment shared with scenes ---------- */
   const input = { x: -1e4, y: -1e4, px: null, py: null, vx: 0, vy: 0, down: false, active: false, type: 'mouse', lastMove: -10, lastAny: -1e9, inside: false, downAt: 0, downX: 0, downY: 0, moved: 0 };
   const env = (M.env = {
-    W: 0, H: 0, dpr: 1, unit: 1, mobile: false, t: 0, quality: 1,
+    W: 0, H: 0, dpr: 1, unit: 1, mobile: false, t: 0, quality: 1, qMax: 1,
     density: set.density, speed: set.speed, mode: set.mode, input,
     cover: { s: 1, ox: 0, oy: 0, iw: 1672, ih: 941 },
     map(u, v) { const c = this.cover; return [c.ox + u * c.iw * c.s, c.oy + v * c.ih * c.s]; },
   });
 
-  let scene = null, sceneMeta = null, ready = false, switching = false;
+  let scene = null, sceneMeta = null, ready = false, switching = false, resized = false;
   const imgs = [$('#bgA'), $('#bgB')];
   let active = 0;
 
@@ -63,6 +63,8 @@
     env.unit = Math.max(env.W, env.H) / 1600;
     env.mobile = Math.min(env.W, env.H) < 700 || (window.matchMedia && matchMedia('(pointer:coarse)').matches);
     canvas.width = Math.round(env.W * env.dpr); canvas.height = Math.round(env.H * env.dpr);
+    if (env.mobile && env.quality === 1 && !resized) env.quality = 0.6; // phones start conservative and work up
+    resized = true;
     if (sceneMeta) env.cover = layoutImg(imgs[active], sceneMeta);
     if (scene && ready && scene.resize) scene.resize(env);
   }
@@ -82,6 +84,7 @@
     set.scene = id; set.bg[id] = idx; persist();
     await showBg(sceneMeta);
     await wait(30);
+    env.quality = env.mobile ? 0.6 : 0.85;
     S.init(env, sceneMeta);
     ready = true;
     M.audio.setScene(id, sceneMeta);
@@ -144,7 +147,7 @@
   }
 
   /* ---------- loop + adaptive quality ---------- */
-  let last = performance.now(), fN = 0, fT = 0, audioT = 0;
+  let last = performance.now(), fN = 0, fT = 0, audioT = 0, errors = 0;
   function frame(now) {
     requestAnimationFrame(frame);
     let dt = (now - last) / 1000; last = now;
@@ -153,18 +156,29 @@
     env.t += dt;
     updateInput(dt);
     if (scene && ready) {
-      scene.update(dt * env.speed, env);
-      ctx.setTransform(env.dpr, 0, 0, env.dpr, 0, 0);
-      ctx.clearRect(0, 0, env.W, env.H);
-      scene.draw(ctx, env);
+      try {
+        scene.update(dt * env.speed, env);
+        ctx.setTransform(env.dpr, 0, 0, env.dpr, 0, 0);
+        ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+        ctx.clearRect(0, 0, env.W, env.H);
+        scene.draw(ctx, env);
+        errors = 0;
+      } catch (err) {
+        // never let one bad frame kill the app: back off quality and carry on
+        console.error(err);
+        env.quality = Math.max(0.25, env.quality * 0.7);
+        if (++errors > 30) { ready = false; toast('Something went wrong — reloading scene'); setTimeout(() => setScene(scene.id), 300); errors = 0; }
+      }
       audioT += dt;
       if (audioT > 0.12 && scene.audioState) { audioT = 0; M.audio.update(scene.audioState(env)); }
     }
+    // adaptive quality: react quickly to slow frames, recover slowly
     fN++; fT += dt;
-    if (fT > 2.5) {
+    if (fT > 1.2) {
       const fps = fN / fT; fN = 0; fT = 0;
-      if (fps < 44 && env.quality > 0.35) env.quality = Math.max(0.35, env.quality * 0.86);
-      else if (fps > 57 && env.quality < 1) env.quality = Math.min(1, env.quality * 1.06);
+      if (fps < 40) env.quality = Math.max(0.25, env.quality * 0.72);
+      else if (fps < 52) env.quality = Math.max(0.25, env.quality * 0.88);
+      else if (fps > 58 && env.quality < env.qMax) env.quality = Math.min(env.qMax, env.quality * 1.04);
     }
   }
 

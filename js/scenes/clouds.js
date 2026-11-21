@@ -68,8 +68,10 @@
   function render(c, env) {
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
     for (const p of c.puffs) { x0 = Math.min(x0, p.x - p.r); x1 = Math.max(x1, p.x + p.r); y0 = Math.min(y0, p.y - p.r); y1 = Math.max(y1, p.y + p.r); }
-    const pad = 6, dpr = Math.min(env.dpr, 1.25);
+    const pad = 6;
     c.ox = x0 - pad; c.oy = y0 - pad; c.cw = x1 - x0 + pad * 2; c.ch = y1 - y0 + pad * 2;
+    // soft clouds don't need full resolution; cap each cache at ~2.5 MP to keep GPU memory low
+    const dpr = Math.min(1, Math.sqrt(2.5e6 / (c.cw * c.ch)));
     if (!c.cache) c.cache = document.createElement('canvas');
     const W = Math.ceil(c.cw * dpr), H = Math.ceil(c.ch * dpr);
     if (c.cache.width !== W || c.cache.height !== H) { c.cache.width = W; c.cache.height = H; }

@@ -16,11 +16,11 @@
   const NS = 2, SHARE = [0.74, 0.26];
   const schools = Array.from({ length: NS }, (_, k) => ({ fl: null, k, T: { x: 0, y: 0, z: 120, rx: 200, ry: 70, rz: 120 }, ph: k * 2.1 + Math.random(), cen: [0, 0], m: 0, dir: k ? -1 : 1 }));
   const shark = { on: false, x: 0, y: 0, vx: 0, vy: 0, wait: 10, ph: 0 };
-  let snow = [], bubbles = [], rays = [], paths = [], yTop = 0, yBot = 0;
+  let snow = [], bubbles = [], rays = [], paths = [], yTop = 0, yBot = 0, rayGrad = null, lines = [], backs = [];
 
   // each simulated fish is drawn as KF followers (cluster impostors) -> ~16k visible fish on desktop
-  const KF = 3, CLF = 6.5, POOLF = M.clusterPool(KF, 0.6, 23);
-  function want(env, k) { return Math.round((env.mobile ? 2300 : 5400) * SHARE[k] * env.density * env.quality); }
+  const KF = 4, CLF = 7.5, POOLF = M.clusterPool(KF, 0.6, 23);
+  function want(env, k) { return Math.round((env.mobile ? 1300 : 3200) * SHARE[k] * env.density * env.quality); }
 
   S.init = function (env, meta) {
     bg = meta; t = Math.random() * 50;
@@ -99,7 +99,7 @@
       const n = want(env, sc.k);
       if (Math.abs(fl.n - n) > 30) fl.grow(n, 4);
       fl.step(dt, {
-        r: 38, sep: 13, wSep: 1400, wAli: 3.4, wCoh: 1.8, border: 2.5, gcoh: 0.05, noise: 20, fearAli: 0.6, vmin: 45, vmax: 110, maxN: 9, accel: 2.2,
+        r: 38, sep: 13, wSep: 1400, exam: 36, wAli: 3.4, wCoh: 1.8, border: 2.5, gcoh: 0.05, noise: 20, fearAli: 0.6, vmin: 45, vmax: 110, maxN: 9, accel: 2.2,
         contain: 95, mill: sc.m * 70 * sc.dir, fearDecay: 0.95, fearSpread: 0.9, fearBoost: 1.5, vdamp: 0.9, flap: 15,
         target: sc.T, predators: preds, unit: env.unit * ZOOM, boundK: 8,
         yMin: yTop + 10, yMax: yBot - 10, xMin: -60, xMax: env.W + 60, zMin: -240, zMax: 700,
@@ -146,12 +146,12 @@
     M.caustics.render(t, env);
     // shimmering god-rays
     ctx.save(); ctx.globalCompositeOperation = 'screen';
+    if (!rayGrad || rayGrad.H !== H) { rayGrad = ctx.createLinearGradient(0, 0, 0, H * 0.9); rayGrad.addColorStop(0, 'rgba(220,255,250,1)'); rayGrad.addColorStop(1, 'rgba(220,255,250,0)'); rayGrad.H = H; }
+    ctx.fillStyle = rayGrad;
     for (const r of rays) {
-      const a = 0.035 * (0.5 + 0.5 * Math.sin(t * r.sp + r.ph));
+      ctx.globalAlpha = 0.035 * (0.5 + 0.5 * Math.sin(t * r.sp + r.ph));
       const x0 = (r.x + 0.03 * Math.sin(t * 0.1 + r.ph)) * W, w = r.w * W;
-      const g = ctx.createLinearGradient(0, 0, 0, H * 0.9);
-      g.addColorStop(0, 'rgba(220,255,250,' + a.toFixed(3) + ')'); g.addColorStop(1, 'rgba(220,255,250,0)');
-      ctx.fillStyle = g; ctx.beginPath();
+      ctx.beginPath();
       ctx.moveTo(x0, 0); ctx.lineTo(x0 + w, 0); ctx.lineTo(x0 + w * 2.2 - r.sk * H, H * 0.9); ctx.lineTo(x0 - r.sk * H, H * 0.9); ctx.fill();
     }
     ctx.restore();
@@ -162,8 +162,7 @@
     if (shark.on) drawShark(ctx, env);
     // school
     const NB = 7;
-    for (let b = 0; b < NB * 3; b++) paths[b] = new Path2D();
-    const backs = [new Path2D(), new Path2D(), new Path2D()];
+    M.pathBufs(paths, NB * 3); M.pathBufs(backs, 3); M.pathBufs(lines, NB);
     const L0 = 27 * Math.max(env.unit, 0.7), zu = env.unit * ZOOM;
     for (const school of schools) {
       const fl = school.fl;
@@ -190,24 +189,37 @@
           const q = base + k * 4, fx = x + POOLF[q] * cs, fy = y + POOLF[q + 1] * cs;
           // each follower rolls on its own -> flicker of silver across the ball
           const vk = U.clamp(v + Math.sin(phase[i] * 0.11 + POOLF[q + 3]) * 0.16 + (POOLF[q + 3] / 6.283 - 0.5) * 0.22, 0, 0.999);
-          fishPath(paths[d * NB + ((vk * NB) | 0)], fx, fy, hx, hy, L * (0.9 + 0.2 * POOLF[q + 2]), side, phase[i] + POOLF[q + 3]);
+          const bi = (vk * NB) | 0;
+          if (L * side < 9) {
+            // small / distant fish: a single stroke is indistinguishable and far cheaper than a filled outline
+            lines[bi].moveTo(fx + hx * Ls * 0.5, fy + hy * Ls * 0.5); lines[bi].lineTo(fx - hx * Ls * 0.5, fy - hy * Ls * 0.5);
+            continue;
+          }
+          fishPath(paths[d * NB + bi], fx, fy, hx, hy, L * (0.9 + 0.2 * POOLF[q + 2]), side, phase[i] + POOLF[q + 3]);
           // countershading: dark dorsal line along the back (toward the light / screen-up)
-          backs[d].moveTo(fx + hx * Ls * 0.42 + nx * o, fy + hy * Ls * 0.42 + ny * o);
-          backs[d].lineTo(fx - hx * Ls * 0.3 + nx * o, fy - hy * Ls * 0.3 + ny * o);
+          if (d === 2) {
+            backs[d].moveTo(fx + hx * Ls * 0.42 + nx * o, fy + hy * Ls * 0.42 + ny * o);
+            backs[d].lineTo(fx - hx * Ls * 0.3 + nx * o, fy - hy * Ls * 0.3 + ny * o);
+          }
         }
       }
     }
     const dark = [22, 28, 34], silver = [236, 242, 245];
+    ctx.lineCap = 'round'; ctx.lineWidth = Math.max(0.9, 1.5 * env.unit);
+    for (let b = 0; b < NB; b++) {
+      ctx.strokeStyle = U.rgba(U.mix(U.mix(dark, silver, Math.pow((b + 0.5) / NB, 1.2)), bg.water, 0.3), 0.9);
+      lines[b].stroke(ctx);
+    }
     for (let d = 0; d < 3; d++) {
       const haze = [0.36, 0.16, 0.02][d];
       for (let b = 0; b < NB; b++) {
         const col = U.mix(U.mix(dark, silver, Math.pow((b + 0.5) / NB, 1.2)), bg.water, haze);
         ctx.fillStyle = U.rgba(col, 0.92 + 0.08 * (b / NB));
-        ctx.fill(paths[d * NB + b]);
+        paths[d * NB + b].fill(ctx);
       }
       ctx.strokeStyle = U.rgba(U.mix([14, 22, 30], bg.water, haze), 0.6);
       ctx.lineWidth = Math.max(0.6, env.unit * (0.8 + d * 0.35)); ctx.lineCap = 'round';
-      ctx.stroke(backs[d]);
+      backs[d].stroke(ctx);
     }
     // bubbles
     ctx.lineWidth = 1;

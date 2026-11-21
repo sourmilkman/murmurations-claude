@@ -9,7 +9,7 @@
       { src: 'assets/bg/smoke-garden-night.jpg', label: 'Autumn night', focus: [0.7, 0.62], night: true },
     ],
   };
-  const CAP = 8000, NV = 6, NT = 8;
+  const CAP = 3600, NV = 6, NT = 8;
   const P = {};
   ['x', 'y', 'vx', 'vy', 'age', 'life', 'sz', 'gr', 'rot', 'vr', 'a0', 'oy', 'tv'].forEach((k) => (P[k] = new Float32Array(CAP)));
   const V = new Uint8Array(CAP);
@@ -17,7 +17,7 @@
   let embers = [], sparks = [], acc = 0, k = 1, pushAg = 0;
   const tmp = [0, 0], wk = [0, 0], wake = M.Wake();
   let buf = null, bctx = null;
-  const BQ = 0.42; // smoke is soft: render it at reduced resolution and upscale (≈10× less fill)
+  const BQ = 0.33; // smoke is soft: render it at reduced resolution and upscale (≈10× less fill)
 
   const TONES = {
     // dark, sooty greys -> pale blue-white (light scattered by fine particles)
@@ -63,7 +63,7 @@
     P.age[i] = 0; P.life[i] = U.rand(26, 40);
     P.sz[i] = U.rand(5, 10) * k; P.gr[i] = U.rand(2.8, 4.8) * k;
     P.rot[i] = Math.random() * 6.28; P.vr[i] = U.rand(-0.12, 0.12);
-    P.a0[i] = U.rand(0.34, 0.55) * (bg.night ? 0.9 : 1) * (0.7 + v[2] * 0.25);
+    P.a0[i] = U.rand(0.4, 0.62) * (bg.night ? 0.9 : 1) * (0.7 + v[2] * 0.25);
     V[i] = (Math.random() * NV) | 0;
     // each wisp has its own shade: sooty cores and pale veils intermingle
     P.tv[i] = Math.pow(Math.random(), 0.85);
@@ -75,7 +75,7 @@
 
   S.update = function (dt, env, warm) {
     t += dt;
-    const rate = 150 * env.density * env.quality;
+    const rate = 110 * env.density * env.quality;
     acc += rate * dt;
     while (acc >= 1) {
       acc -= 1;

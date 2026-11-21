@@ -177,8 +177,8 @@
   }
 
   S.draw = function (ctx, env) {
-    for (let b = 0; b < 5; b++) paths[b] = new Path2D();
-    const wingP = new Path2D();
+    M.pathBufs(paths, 6);
+    const wingP = paths[5];
     const { sx, sy, s: sc, vx, vy, ph } = A, u = env.unit, W = env.W, H = env.H;
     for (let i = 0; i < n; i++) {
       const x0 = sx[i], y0 = sy[i], s = sc[i];
@@ -206,20 +206,22 @@
         if (b === 3) {
           const flap = Math.abs(Math.sin(ph[i] + POOL[o + 3]));
           const rx = 3.4 * s * u * (0.5 + 0.5 * flap), ry = 1.2 * s * u, rot = Math.atan2(hy2, hx) + Math.PI / 2;
-          wingP.moveTo(x + rx * Math.cos(rot), y + rx * Math.sin(rot));
-          wingP.ellipse(x, y, rx, ry, rot, 0, 6.2832);
+          // blurred wing disc as a 4-point lozenge (cheap, no arc tessellation)
+          const c = Math.cos(rot), sn = Math.sin(rot);
+          wingP.moveTo(x + rx * c, y + rx * sn); wingP.lineTo(x - ry * sn, y + ry * c);
+          wingP.lineTo(x - rx * c, y - rx * sn); wingP.lineTo(x + ry * sn, y - ry * c); wingP.closePath();
         }
       }
     }
     ctx.lineCap = 'round';
     const widths = [0.7, 0.9, 1.15, 1.4], haze = [0.6, 0.42, 0.24, 0.1], alpha = [0.42, 0.58, 0.74, 0.86];
-    ctx.strokeStyle = U.rgba(bg.ground, 0.75); ctx.lineWidth = Math.max(0.6, 1.1 * u); ctx.stroke(paths[4]);
+    ctx.strokeStyle = U.rgba(bg.ground, 0.75); ctx.lineWidth = Math.max(0.6, 1.1 * u); paths[4].stroke(ctx);
     for (let b = 0; b < 4; b++) {
       ctx.strokeStyle = U.rgba(U.mix(bg.body, bg.haze, haze[b]), alpha[b]);
       ctx.lineWidth = Math.max(0.55, widths[b] * u);
-      ctx.stroke(paths[b]);
+      paths[b].stroke(ctx);
     }
-    ctx.fillStyle = U.rgba(bg.wing, 0.13); ctx.fill(wingP);
+    ctx.fillStyle = U.rgba(bg.wing, 0.13); wingP.fill(ctx);
     // birds sweeping in to feed
     for (const B of birds) {
       const s = B.sz, f = Math.sin(B.ph);

@@ -96,7 +96,7 @@
   };
 
   S.draw = function (ctx, env) {
-    for (let b = 0; b < 8; b++) paths[b] = new Path2D();
+    M.pathBufs(paths, 8);
     const { sx, sy, sc, vx, vy, vz, turn, phase } = fl;
     const span = 2.5 * env.unit, W = env.W, H = env.H, zu = env.unit * ZOOM;
     const ca = Math.cos(cam.pitch), sa = Math.sin(cam.pitch);
@@ -129,7 +129,7 @@
         // partial opacity: overlapping birds build up density, so folds read darker (volumetric look)
         ctx.strokeStyle = U.rgba(col, (0.5 + 0.3 * (d / 3)) * (k ? 1.15 : 1));
         ctx.lineWidth = Math.max(0.7, env.unit * (0.85 + d * 0.15) * (k ? 1.25 : 1));
-        ctx.stroke(paths[d * 2 + k]);
+        paths[d * 2 + k].stroke(ctx);
       }
     }
     if (falcon.on) {
