@@ -1,8 +1,8 @@
 /* Murmurations service worker — offline-first */
-const VERSION = 'murmurations-v0.1.0';
+const VERSION = 'murmurations-v0.2.0';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',
-  'js/noise.js', 'js/core.js', 'js/audio.js', 'js/main.js',
+  'js/noise.js', 'js/core.js', 'js/audio.js', 'js/caustics.js', 'js/main.js',
   'js/scenes/starlings.js', 'js/scenes/locusts.js', 'js/scenes/fish.js', 'js/scenes/smoke.js', 'js/scenes/clouds.js',
   'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png',
   'assets/bg/starlings-marsh-sunset.jpg', 'assets/bg/starlings-lake-dusk.jpg',

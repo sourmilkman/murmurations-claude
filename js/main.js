@@ -77,6 +77,7 @@
     veil.classList.remove('off');
     await wait(scene ? 700 : 0);
     ready = false;
+    if (scene && scene.exit) scene.exit(env);
     scene = S; sceneMeta = S.bgs[idx];
     set.scene = id; set.bg[id] = idx; persist();
     await showBg(sceneMeta);

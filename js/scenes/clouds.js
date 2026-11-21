@@ -8,9 +8,10 @@
       { src: 'assets/bg/clouds-mountains.jpg', label: 'Mountain fields', focus: [0.62, 0.45], horizon: 0.48 },
     ],
   };
-  const NVAR = 4, NTONE = 7, SZ = 128;
-  const LIT = [255, 254, 250], SHADE = [146, 158, 180];
+  const NVAR = 4, NTONE = 9, SZ = 160;
+  const LIT = [255, 254, 251], SHADE = [138, 150, 172];
   let sprites = null, clouds = [], bg, t = 0, hy = 0, top = 0, ag = 0;
+  const wake = M.Wake(), wk = [0, 0];
 
   function buildSprites() {
     const out = [];
@@ -20,8 +21,8 @@
         const seed = v * 5.1 + 2;
         const map = M.densityMap(SZ, seed, 'cloud');
         row.push(M.tintSprite(map, SZ, (nx, ny) => {
-          const nz = M.noise.fbm(nx * 2.5 + seed, ny * 2.5, 9 + seed, 3);
-          const light = U.clamp(L * 0.82 + (-ny) * 0.12 + nz * 0.3 + 0.05, 0, 1);
+          const nz = M.noise.fbm(nx * 1.6 + seed, ny * 1.6, 9 + seed, 2);
+          const light = U.clamp(L * 0.85 + (-ny) * 0.14 + nz * 0.12 + 0.06, 0, 1);
           return U.mix(SHADE, LIT, Math.pow(light, 0.85));
         }));
       }
@@ -32,30 +33,30 @@
 
   function makeCloud(env, depth, x) {
     const u = env.unit, sc = U.lerp(1, 0.3, depth);
-    const w = U.rand(380, 820) * sc * Math.max(u, 0.6), flat = 1 - depth * 0.35;
+    const w = U.rand(1100, 2100) * sc * Math.max(u, 0.6), flat = 1 - depth * 0.35;
     const puffs = [], lobes = [];
-    const nl = U.randInt(3, 5);
+    const nl = U.randInt(4, 7);
     let maxH = 1;
     for (let l = 0; l < nl; l++) {
       const lx = U.rand(-0.4, 0.4) * w, center = 1 - Math.abs(lx) / (w * 0.5);
-      const lh = w * U.rand(0.1, 0.24) * (0.4 + 0.6 * center) * flat, lr = w * U.rand(0.15, 0.24);
+      const lh = w * U.rand(0.08, 0.2) * (0.4 + 0.6 * center) * flat, lr = w * U.rand(0.1, 0.17);
       lobes.push({ lx, lh, lr }); maxH = Math.max(maxH, lh + lr);
     }
     for (const lb of lobes) {
-      for (let k = 0; k < 22; k++) {
+      for (let k = 0; k < 30; k++) {
         const f = Math.random(), r = lb.lr * U.rand(0.55, 1.0) * (1 - f * 0.3);
         puffs.push({ x: lb.lx + U.gauss() * lb.lr * 0.42 * (1 - f * 0.3), y: Math.min(-f * lb.lh, -r * 0.55), r });
       }
-      for (let k = 0; k < 8; k++) { // cauliflower crown detail
+      for (let k = 0; k < 14; k++) { // cauliflower crown detail
         const a = U.rand(-2.8, -0.35), r = lb.lr * U.rand(0.3, 0.5);
         puffs.push({ x: lb.lx + Math.cos(a) * lb.lr * 0.6, y: -lb.lh + Math.sin(a) * lb.lr * 0.55, r });
       }
     }
-    const nb = Math.max(6, Math.round(w / (26 * sc * Math.max(u, 0.6))));
+    const nb = Math.max(8, Math.round(w / (34 * sc * Math.max(u, 0.6))));
     for (let k = 0; k < nb; k++) { const r = w * U.rand(0.08, 0.13); puffs.push({ x: U.rand(-0.47, 0.47) * w, y: -r * 0.5, r }); }
     for (const p of puffs) {
       const h = U.clamp(-p.y / maxH, 0, 1), side = p.x / w;
-      const tone = U.clamp(0.22 + h * 0.9 - side * 0.3 + (p.r < w * 0.08 ? 0.06 : 0), 0, 1);
+      const tone = U.clamp(0.28 + h * 0.85 - side * 0.3 + U.gauss() * 0.06 + (p.r < w * 0.06 ? 0.06 : 0), 0, 1);
       p.tone = Math.round(tone * (NTONE - 1)); p.v = (Math.random() * NVAR) | 0;
       p.hx = p.x; p.hy = p.y; p.vx = 0; p.vy = 0;
     }
@@ -67,7 +68,7 @@
   function render(c, env) {
     let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
     for (const p of c.puffs) { x0 = Math.min(x0, p.x - p.r); x1 = Math.max(x1, p.x + p.r); y0 = Math.min(y0, p.y - p.r); y1 = Math.max(y1, p.y + p.r); }
-    const pad = 6, dpr = Math.min(env.dpr, 1.5);
+    const pad = 6, dpr = Math.min(env.dpr, 1.25);
     c.ox = x0 - pad; c.oy = y0 - pad; c.cw = x1 - x0 + pad * 2; c.ch = y1 - y0 + pad * 2;
     if (!c.cache) c.cache = document.createElement('canvas');
     const W = Math.ceil(c.cw * dpr), H = Math.ceil(c.ch * dpr);
@@ -89,10 +90,10 @@
     hy = env.map(0.5, bg.horizon)[1]; top = env.H * 0.03;
     if (regen || !clouds.length) {
       clouds = [];
-      const count = U.clamp(Math.round(3 + env.W / 380), 4, 8);
+      const count = U.clamp(Math.round(2 + env.W / 700), 3, 5);
       for (let i = 0; i < count; i++) {
         const depth = Math.pow(Math.random(), 0.8);
-        clouds.push(makeCloud(env, depth, (i + U.rand(0.1, 0.9)) / count * env.W * 1.1 - env.W * 0.05));
+        clouds.push(makeCloud(env, depth, (i + U.rand(0.1, 0.9)) / count * env.W * 1.3 - env.W * 0.15));
       }
       clouds.sort((a, b) => b.depth - a.depth);
     } else {
@@ -103,25 +104,24 @@
   S.update = function (dt, env) {
     t += dt;
     const inp = env.input, sp = Math.hypot(inp.vx, inp.vy);
-    const R = 170 * Math.max(env.unit, 0.7), attract = env.mode === 'attract';
-    ag = Math.max(ag * Math.exp(-dt * 1.2), inp.active ? Math.min(1, sp / 1200) : 0);
+    const R = 45 * Math.max(env.unit, 0.7), attract = env.mode === 'attract';
+    ag = Math.max(ag * Math.exp(-dt * 1.2), inp.active ? Math.min(1, sp / 1600) : 0);
+    // enormous masses of vapour barely notice a hand: a small, slow, lagging wake
+    wake.update(dt, inp, { r: 40 * Math.max(env.unit, 0.7), gain: attract ? -0.06 : 0.09, swirl: 0.05, maxSpeed: 700, life: 4 });
+    const hasWake = wake.items.length > 0;
     for (let ci = 0; ci < clouds.length; ci++) {
       let c = clouds[ci];
       // interaction: the hand moves air; puffs are carried by it and the whole cloud gains a little momentum
-      if (inp.active && (sp > 15 || attract)) {
-        if (inp.x > c.x + c.ox - R && inp.x < c.x + c.ox + c.cw + R && inp.y > c.y + c.oy - R && inp.y < c.y + c.oy + c.ch + R) {
+      if (hasWake) {
+        const m = R * 4;
+        if (wake.items.some((it) => it.x > c.x + c.ox - m && it.x < c.x + c.ox + c.cw + m && it.y > c.y + c.oy - m && it.y < c.y + c.oy + c.ch + m)) {
           for (const p of c.puffs) {
-            const dx = c.x + p.x - inp.x, dy = c.y + p.y - inp.y, d = Math.hypot(dx, dy) + 1e-3, RR = R + p.r * 0.5;
-            if (d < RR) {
-              const f = (1 - d / RR);
-              if (attract) { p.vx -= (dx / d) * 40 * f * dt * 3; p.vy -= (dy / d) * 40 * f * dt * 3; }
-              else {
-                p.vx += (inp.vx * 0.55 + (dx / d) * 25) * f * dt * 3;
-                p.vy += (inp.vy * 0.55 + (dy / d) * 25) * f * dt * 3;
-              }
-              c.vx += inp.vx * f * 0.0006; c.vy += inp.vy * f * 0.0003;
-              c.active = 2;
-            }
+            wake.sample(c.x + p.x, c.y + p.y, wk);
+            if (wk[0] === 0 && wk[1] === 0) continue;
+            // big puffs have more inertia
+            const inert = 1 / (1 + p.r / (60 * Math.max(env.unit, 0.7)));
+            p.vx += wk[0] * inert * dt * 0.9; p.vy += wk[1] * inert * dt * 0.9;
+            c.active = 2;
           }
         }
       }

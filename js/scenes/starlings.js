@@ -14,11 +14,11 @@
   const falcon = { on: false, x: 0, y: 0, vx: 0, vy: 0, wait: 9, ph: 0 };
   let paths = [], cen = [0, 0];
 
-  function want(env) { return Math.round((env.mobile ? 1900 : 3400) * env.density * env.quality); }
+  function want(env) { return Math.round((env.mobile ? 6500 : 13600) * env.density * env.quality); }
 
   S.init = function (env, meta) {
     bg = meta; t = Math.random() * 100;
-    if (!fl) fl = M.Flock(7000);
+    if (!fl) fl = M.Flock(22000);
     fl.n = 0;
     S.resize(env);
     updateTarget(env, 0);
@@ -51,8 +51,8 @@
     const n = want(env);
     if (Math.abs(fl.n - n) > 40) fl.grow(n, 6);
     const inp = env.input, preds = [];
-    const R = 150 * Math.max(env.unit, 0.75);
-    if (inp.active) preds.push({ x: inp.x, y: inp.y, z: T.z, r: env.mode === 'attract' ? R * 2.2 : R, str: env.mode === 'attract' ? -260 : 1100 });
+    const R = 55 * Math.max(env.unit, 0.75);
+    if (inp.active) preds.push({ x: inp.x, y: inp.y, z: T.z, r: env.mode === 'attract' ? R * 1.6 : R, str: env.mode === 'attract' ? -320 : 1500 });
     // a peregrine stoops when nobody is playing
     if (env.t - inp.lastAny > 12) {
       falcon.wait -= dt;
@@ -68,11 +68,11 @@
     }
     if (falcon.on) {
       falcon.x += falcon.vx * dt; falcon.y += falcon.vy * dt; falcon.vy += 30 * dt; falcon.ph += dt * 7;
-      preds.push({ x: falcon.x, y: falcon.y, z: T.z, r: 120 * Math.max(env.unit, 0.75), str: 1200 });
+      preds.push({ x: falcon.x, y: falcon.y, z: T.z, r: 70 * Math.max(env.unit, 0.75), str: 1500 });
       if (falcon.x < -120 || falcon.x > env.W + 120 || falcon.y > env.H + 80 || falcon.y < -200) { falcon.on = false; falcon.wait = U.rand(10, 18); }
     }
     fl.step(dt, {
-      r: 40, sep: 13, wSep: 1300, wAli: 2.4, wCoh: 1.3, fearAli: 1.6, vmin: 95, vmax: 165, maxN: 8,
+      r: 30, sep: 9, wSep: 950, wAli: 2.4, wCoh: 1.3, accel: 1.4, fearAli: 1.6, vmin: 95, vmax: 165, maxN: 8,
       contain: 95, fearDecay: 0.962, fearSpread: 0.93, fearBoost: 0.6, vdamp: 0.55, flap: 12,
       target: T, predators: preds, unit: env.unit, boundK: 7,
       yMin: env.H * 0.03, yMax: hy - 18 * env.unit, xMin: -80, xMax: env.W + 80, zMin: -320, zMax: 820,
@@ -84,7 +84,7 @@
   S.draw = function (ctx, env) {
     for (let b = 0; b < 8; b++) paths[b] = new Path2D();
     const { sx, sy, sc, vx, vy, vz, turn, phase } = fl;
-    const span = 4.6 * env.unit, W = env.W, H = env.H;
+    const span = 4.2 * env.unit, W = env.W, H = env.H;
     for (let i = 0; i < fl.n; i++) {
       const x = sx[i], y = sy[i];
       if (x < -10 || x > W + 10 || y < -10 || y > H + 10) continue;

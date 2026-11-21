@@ -1,7 +1,7 @@
 /* Murmurations — shared utilities, procedural sprites, 3D flocking engine */
 (function () {
   const M = (window.M = window.M || {});
-  M.VERSION = '0.1.0';
+  M.VERSION = '0.2.0';
   M.scenes = M.scenes || {};
   M.sceneOrder = ['starlings', 'locusts', 'fish', 'smoke', 'clouds'];
 
@@ -30,12 +30,12 @@
         if (r < 1) {
           if (kind === 'smoke') {
             // domain-warped fbm -> wispy, filamented smoke
-            const w = fbm(nx * 1.5 + ox, ny * 1.5 + oy, seed, 3);
-            const q = fbm(nx * 2.4 + w * 1.6 + ox, ny * 2.4 + w * 1.6 - oy, seed + 5.3, 4);
+            const w = fbm(nx * 1.3 + ox, ny * 1.3 + oy, seed, 2);
+            const q = fbm(nx * 1.9 + w * 1.5 + ox, ny * 1.9 + w * 1.5 - oy, seed + 5.3, 3);
             const fall = Math.pow(1 - r, 1.25);
             v = U.clamp(fall * (0.15 + 1.5 * (q * 0.5 + 0.5)) * 1.35 - 0.1, 0, 1);
           } else if (kind === 'cloud') {
-            const q = fbm(nx * 2.1 + ox, ny * 2.1 + oy, seed, 4);
+            const q = fbm(nx * 1.8 + ox, ny * 1.8 + oy, seed, 3);
             const edge = 0.72 + 0.26 * q;
             v = (1 - U.smooth(edge - 0.6, edge, r)) * 0.95;
           } else {
@@ -76,7 +76,7 @@
   /* ---------- 3D flock (boids w/ topological-ish neighbour cap + fear contagion) ---------- */
   M.Flock = function (cap) {
     const f = { cap, n: 0 };
-    ['px', 'py', 'pz', 'vx', 'vy', 'vz', 'fear', 'turn', 'phase', 'sx', 'sy', 'sc', 'hx', 'hy'].forEach((k) => (f[k] = new Float32Array(cap)));
+    ['px', 'py', 'pz', 'vx', 'vy', 'vz', 'fear', 'turn', 'phase', 'sx', 'sy', 'sc', 'hx', 'hy', 'pref', 'prefT', 'tresp'].forEach((k) => (f[k] = new Float32Array(cap)));
     const TB = 8192, head = new Int32Array(TB), next = new Int32Array(cap);
     const OX = [0, -1, 1, 0, 0, -1, -1, 1, 1], OY = [0, 0, 0, -1, 1, -1, 1, -1, 1];
     const hash = (ix, iy) => (Math.imul(ix, 73856093) ^ Math.imul(iy, 19349663)) & (TB - 1);
@@ -86,6 +86,7 @@
       f.px[i] = x; f.py[i] = y; f.pz[i] = z; f.vx[i] = vx; f.vy[i] = vy; f.vz[i] = vz;
       f.fear[i] = 0; f.turn[i] = 0; f.phase[i] = Math.random() * 6.283; f.sx[i] = -1e5; f.sy[i] = -1e5; f.sc[i] = 1;
       const l = Math.hypot(vx, vy) || 1; f.hx[i] = vx / l; f.hy[i] = vy / l;
+      f.pref[i] = f.prefT[i] = U.rand(0.8, 1.2); f.tresp[i] = U.rand(-0.35, 0.85);
     };
     f.grow = function (target, spread) {
       if (target < f.n) { f.n = Math.max(0, target); return; }
@@ -102,7 +103,7 @@
       }
     };
     f.step = function (dt, P) {
-      const n = f.n, { px, py, pz, vx, vy, vz, fear, turn, phase, sx, sy, sc, hx, hy } = f;
+      const n = f.n, { px, py, pz, vx, vy, vz, fear, turn, phase, sx, sy, sc, hx, hy, pref, prefT, tresp } = f;
       const inv = 1 / P.r;
       head.fill(-1);
       for (let i = 0; i < n; i++) { const h = hash(Math.floor(px[i] * inv), Math.floor(py[i] * inv)); next[i] = head[h]; head[h] = i; }
@@ -113,7 +114,7 @@
       for (let i = 0; i < n; i++) {
         const x = px[i], y = py[i], z = pz[i];
         const ix = Math.floor(x * inv), iy = Math.floor(y * inv);
-        let cnt = 0, ax = 0, ay = 0, az = 0, cx = 0, cy = 0, cz = 0, ssx = 0, ssy = 0, ssz = 0, fm = 0, seen = 0;
+        let cnt = 0, ax = 0, ay = 0, az = 0, cx = 0, cy = 0, cz = 0, ssx = 0, ssy = 0, ssz = 0, fm = 0, seen = 0, exam = 0;
         // own cell first, then the ring — so the nearest birds are found before the cap is hit
         outer: for (let o = 0; o < 9; o++) {
           let j = head[hash(ix + OX[o], iy + OY[o])];
@@ -125,9 +126,10 @@
                 if (cnt < P.maxN) { cnt++; ax += vx[j]; ay += vy[j]; az += vz[j]; cx += dx; cy += dy; cz += dz; }
                 if (d2 < s2) { const q = 1 / (d2 + 0.5); ssx -= dx * q; ssy -= dy * q; ssz -= dz * q; }
                 if (fear[j] > fm) fm = fear[j];
-                if (++seen >= 48) break outer;
+                if (++seen >= 40) break outer;
               }
             }
+            if (++exam >= 64) break outer;
             j = next[j];
           }
         }
@@ -177,10 +179,15 @@
         fy -= vy[i] * P.vdamp; fz -= vz[i] * P.vdamp * 0.5;
         // integrate
         let nvx = vx[i] + fx * dt, nvy = vy[i] + fy * dt, nvz = vz[i] + fz * dt;
+        // individual, wandering speed preference + surge/brake when changing direction
+        if (Math.random() < dt * 0.35) prefT[i] = U.rand(0.7, 1.32);
+        pref[i] += (prefT[i] - pref[i]) * Math.min(1, dt * 0.9);
         const sp = Math.sqrt(nvx * nvx + nvy * nvy + nvz * nvz) + 1e-6;
-        const vmax = P.vmax * (1 + nf * P.fearBoost), vmin = P.vmin;
-        if (sp > vmax) { const k = vmax / sp; nvx *= k; nvy *= k; nvz *= k; }
-        else if (sp < vmin) { const k = vmin / sp; nvx *= k; nvy *= k; nvz *= k; }
+        const boost = 1 + nf * P.fearBoost;
+        let tgt = (P.vmin + P.vmax) * 0.5 * pref[i] * (1 + tresp[i] * Math.min(1, turn[i] * 0.6)) * boost;
+        tgt = tgt < P.vmin * 0.6 ? P.vmin * 0.6 : tgt > P.vmax * boost * 1.25 ? P.vmax * boost * 1.25 : tgt;
+        const nsp = sp + (tgt - sp) * Math.min(1, dt * (P.accel || 1.6));
+        { const k = nsp / sp; nvx *= k; nvy *= k; nvz *= k; }
         vx[i] = nvx; vy[i] = nvy; vz[i] = nvz;
         px[i] = x + nvx * dt; py[i] = y + nvy * dt; pz[i] = z + nvz * dt;
         // angular velocity (banking makes birds / fish look darker / flash)
@@ -200,5 +207,48 @@
       return c ? [x / c, y / c] : [0, 0];
     };
     return f;
+  };
+
+  /* ---------- hand wake for fluids (smoke, clouds): lagging jet + counter-rotating vortices ---------- */
+  M.Wake = function () {
+    const w = { items: [], lx: null, ly: null };
+    w.reset = () => { w.items.length = 0; w.lx = null; };
+    w.update = function (dt, inp, o) {
+      const sp = Math.hypot(inp.vx, inp.vy);
+      if (inp.active && sp > 25) {
+        if (w.lx == null) { w.lx = inp.x; w.ly = inp.y; }
+        const moved = Math.hypot(inp.x - w.lx, inp.y - w.ly);
+        if (moved > o.r * 0.45) {
+          w.lx = inp.x; w.ly = inp.y;
+          const s = Math.min(sp, o.maxSpeed), ux = inp.vx / sp, uy = inp.vy / sp;
+          const nx = -uy, ny = ux, a = o.r * 0.85, c = s * o.swirl;
+          w.items.push({ x: inp.x, y: inp.y, vx: ux * s * o.gain, vy: uy * s * o.gain, r: o.r, c: 0, age: 0, life: o.life });
+          w.items.push({ x: inp.x + nx * a, y: inp.y + ny * a, vx: ux * s * o.gain * 0.4, vy: uy * s * o.gain * 0.4, r: o.r * 0.8, c: c, age: 0, life: o.life * 1.4 });
+          w.items.push({ x: inp.x - nx * a, y: inp.y - ny * a, vx: ux * s * o.gain * 0.4, vy: uy * s * o.gain * 0.4, r: o.r * 0.8, c: -c, age: 0, life: o.life * 1.4 });
+          while (w.items.length > 90) w.items.shift();
+        }
+      } else w.lx = null;
+      for (let i = w.items.length - 1; i >= 0; i--) {
+        const it = w.items[i];
+        it.age += dt;
+        if (it.age > it.life) { w.items.splice(i, 1); continue; }
+        it.x += it.vx * dt; it.y += it.vy * dt;
+        const d = Math.exp(-dt * 1.3); it.vx *= d; it.vy *= d;
+        it.r *= 1 + dt * 0.5;
+      }
+    };
+    w.sample = function (x, y, out) {
+      out[0] = 0; out[1] = 0;
+      const L = w.items;
+      for (let i = 0; i < L.length; i++) {
+        const it = L[i], dx = x - it.x, dy = y - it.y, R2 = it.r * it.r, d2 = dx * dx + dy * dy;
+        if (d2 > R2 * 6) continue;
+        const fade = 1 - it.age / it.life, g = Math.exp(-d2 / R2) * fade * fade;
+        out[0] += it.vx * g; out[1] += it.vy * g;
+        if (it.c) { out[0] += (-dy / it.r) * it.c * g; out[1] += (dx / it.r) * it.c * g; }
+      }
+      return out;
+    };
+    return w;
   };
 })();

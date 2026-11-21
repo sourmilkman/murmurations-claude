@@ -4,28 +4,32 @@
   const S = {
     id: 'fish', name: 'Fish',
     bgs: [
-      { src: 'assets/bg/fish-shallows.jpg', label: 'Sunlit shallows', focus: [0.5, 0.4], water: [40, 142, 150], top: 0.04, bottom: 0.86 },
-      { src: 'assets/bg/fish-reef.jpg', label: 'Deep reef', focus: [0.42, 0.45], water: [16, 74, 116], top: 0.04, bottom: 0.78 },
+      { src: 'assets/bg/fish-shallows.jpg', label: 'Sunlit shallows', focus: [0.5, 0.4], water: [40, 142, 150], top: 0.04, bottom: 0.86,
+        caustics: { bed: 0.6, surf: 0.3, bedI: 0.5, surfI: 0.32, bedX: [-1, -0.5], scale: 26, col: [0.85, 1, 0.92] } },
+      { src: 'assets/bg/fish-reef.jpg', label: 'Deep reef', focus: [0.42, 0.45], water: [16, 74, 116], top: 0.04, bottom: 0.78,
+        caustics: { bed: 0.64, surf: 0.27, bedI: 0.34, surfI: 0.28, bedX: [0.4, 0.62], scale: 24, col: [0.7, 0.95, 1] } },
     ],
   };
-  let fl = null, bg, t = 0;
+  let bg, t = 0;
   const cam = { cx: 0, cy: 0, F: 900 };
-  const T = { x: 0, y: 0, z: 120, rx: 200, ry: 70, rz: 120 };
+  const NS = 3;
+  const schools = Array.from({ length: NS }, (_, k) => ({ fl: null, T: { x: 0, y: 0, z: 120, rx: 200, ry: 70, rz: 120 }, ph: k * 2.1 + Math.random(), cen: [0, 0] }));
   const shark = { on: false, x: 0, y: 0, vx: 0, vy: 0, wait: 10, ph: 0 };
-  let snow = [], bubbles = [], rays = [], paths = [], yTop = 0, yBot = 0, cen = [0, 0];
+  let snow = [], bubbles = [], rays = [], paths = [], yTop = 0, yBot = 0;
 
-  function want(env) { return Math.round((env.mobile ? 1100 : 1900) * env.density * env.quality); }
+  function want(env) { return Math.round((env.mobile ? 750 : 1700) * env.density * env.quality); }
 
   S.init = function (env, meta) {
     bg = meta; t = Math.random() * 50;
-    if (!fl) fl = M.Flock(4000);
-    fl.n = 0;
     S.resize(env);
-    updateTarget(env);
     const n = want(env);
-    for (let i = 0; i < n; i++) {
-      fl.add(T.x + U.gauss() * 60, T.y + U.gauss() * 25, T.z + U.gauss() * 40, 80, U.gauss() * 4, U.gauss() * 4);
-    }
+    schools.forEach((sc, k) => {
+      if (!sc.fl) sc.fl = M.Flock(4000);
+      sc.fl.n = 0; updateTarget(env, sc);
+      const T = sc.T, dir = k % 2 ? -1 : 1;
+      for (let i = 0; i < n; i++) sc.fl.add(T.x + U.gauss() * 80, T.y + U.gauss() * 30, T.z + U.gauss() * 50, 80 * dir, U.gauss() * 4, U.gauss() * 4);
+    });
+    M.caustics.enable(meta);
     snow = [];
     for (let i = 0; i < 160; i++) snow.push({ x: Math.random() * env.W, y: Math.random() * env.H, z: Math.random(), ph: Math.random() * 6.28, vx: 0, vy: 0 });
     bubbles = [];
@@ -33,17 +37,19 @@
     for (let i = 0; i < 7; i++) rays.push({ x: U.rand(-0.1, 1.1), w: U.rand(0.04, 0.12), sk: U.rand(0.15, 0.35), ph: Math.random() * 6.28, sp: U.rand(0.15, 0.4) });
     shark.on = false; shark.wait = 10;
   };
-  S.setBg = function (env, meta) { bg = meta; S.resize(env); };
+  S.setBg = function (env, meta) { bg = meta; S.resize(env); M.caustics.enable(meta); };
+  S.exit = function () { M.caustics.disable(); };
   S.resize = function (env) {
     yTop = env.map(0, bg.top)[1]; yBot = env.map(0, bg.bottom)[1];
     yTop = Math.max(yTop, env.H * 0.04); yBot = Math.min(yBot, env.H * 0.94);
     cam.cx = env.W / 2; cam.cy = (yTop + yBot) / 2;
   };
-  function updateTarget(env) {
+  function updateTarget(env, sc) {
+    const T = sc.T, q = t + sc.ph * 37;
     const Vw = env.W / 2 / env.unit, Vh = (yBot - yTop) / 2 / env.unit;
-    T.x = Vw * 0.38 * Math.sin(t * 0.045) + Vw * 0.12 * Math.sin(t * 0.13 + 2);
-    T.y = Vh * 0.3 * Math.sin(t * 0.06 + 1);
-    T.z = 120 + 90 * Math.sin(t * 0.033);
+    T.x = Vw * 0.45 * Math.sin(q * 0.041 + sc.ph) + Vw * 0.14 * Math.sin(q * 0.13 + 2);
+    T.y = Vh * 0.42 * Math.sin(q * 0.057 + 1 + sc.ph);
+    T.z = 60 + 260 * (sc.ph % 1) + 90 * Math.sin(q * 0.033);
     T.rx = (170 + Vw * 0.16) * (1 + 0.3 * Math.sin(t * 0.08));
     T.ry = Math.max(60, Vh * 0.36) * (1 + 0.35 * Math.sin(t * 0.11 + 1));
     T.rz = 170;
@@ -57,12 +63,13 @@
 
   S.update = function (dt, env) {
     t += dt;
-    updateTarget(env);
     const n = want(env);
-    if (Math.abs(fl.n - n) > 30) fl.grow(n, 5);
     const inp = env.input, preds = [];
-    const R = 130 * Math.max(env.unit, 0.75);
-    if (inp.active) preds.push({ x: inp.x, y: inp.y, z: T.z, r: env.mode === 'attract' ? R * 2 : R, str: env.mode === 'attract' ? -220 : 1300 });
+    const R = 55 * Math.max(env.unit, 0.75);
+    if (inp.active) preds.push({ x: inp.x, y: inp.y, z: 150, r: env.mode === 'attract' ? R * 1.6 : R, str: env.mode === 'attract' ? -280 : 1700 });
+    // the predator hunts the nearest school
+    let cen = schools[0].cen, best = 1e9;
+    for (const sc of schools) { const d = Math.abs(sc.cen[0] - shark.x) + Math.abs(sc.cen[1] - shark.y); if (d < best) { best = d; cen = sc.cen; } }
     if (env.t - inp.lastAny > 12) {
       shark.wait -= dt;
       if (!shark.on && shark.wait <= 0) {
@@ -77,17 +84,22 @@
       const lunge = d < 220 * env.unit ? 1.6 : 1;
       shark.vy += (dy / d) * 40 * dt; shark.vy *= 0.99;
       shark.x += shark.vx * lunge * dt; shark.y += shark.vy * dt; shark.ph += dt * 6 * lunge;
-      preds.push({ x: shark.x, y: shark.y, z: T.z, r: 150 * Math.max(env.unit, 0.75), str: 1500 });
+      preds.push({ x: shark.x, y: shark.y, z: 150, r: 120 * Math.max(env.unit, 0.75), str: 1600 });
       if (shark.x < -200 || shark.x > env.W + 200) { shark.on = false; shark.wait = U.rand(12, 20); }
     }
-    fl.step(dt, {
-      r: 40, sep: 15, wSep: 1500, wAli: 3.4, wCoh: 1.7, fearAli: 0.6, vmin: 48, vmax: 105, maxN: 10,
-      contain: 75, fearDecay: 0.95, fearSpread: 0.9, fearBoost: 1.5, vdamp: 0.9, flap: 15,
-      target: T, predators: preds, unit: env.unit, boundK: 8,
-      yMin: yTop + 10, yMax: yBot - 10, xMin: -60, xMax: env.W + 60, zMin: -240, zMax: 700,
-    });
-    fl.project(cam.cx, cam.cy, cam.F, env.unit);
-    cen = fl.centroid();
+    for (const sc of schools) {
+      const fl = sc.fl;
+      updateTarget(env, sc);
+      if (Math.abs(fl.n - n) > 30) fl.grow(n, 5);
+      fl.step(dt, {
+        r: 34, sep: 12, wSep: 1200, wAli: 3.4, wCoh: 1.7, fearAli: 0.6, vmin: 45, vmax: 110, maxN: 10, accel: 2.2,
+        contain: 75, fearDecay: 0.95, fearSpread: 0.9, fearBoost: 1.5, vdamp: 0.9, flap: 15,
+        target: sc.T, predators: preds, unit: env.unit, boundK: 8,
+        yMin: yTop + 10, yMax: yBot - 10, xMin: -60, xMax: env.W + 60, zMin: -240, zMax: 700,
+      });
+      fl.project(cam.cx, cam.cy, cam.F, env.unit);
+      sc.cen = fl.centroid();
+    }
     // marine snow drifts & is stirred by the hand
     for (const p of snow) {
       p.ph += dt * 0.4;
@@ -124,6 +136,7 @@
 
   S.draw = function (ctx, env) {
     const W = env.W, H = env.H;
+    M.caustics.render(t, env);
     // shimmering god-rays
     ctx.save(); ctx.globalCompositeOperation = 'screen';
     for (const r of rays) {
@@ -141,25 +154,31 @@
     // shark (behind school if far)
     if (shark.on) drawShark(ctx, env);
     // school
-    for (let b = 0; b < 12; b++) paths[b] = new Path2D();
-    const { sx, sy, sc, vx, vy, vz, turn, phase, fear } = fl;
-    const L0 = 15 * Math.max(env.unit, 0.7);
-    for (let i = 0; i < fl.n; i++) {
-      const x = sx[i], y = sy[i];
-      if (x < -20 || x > W + 20 || y < -20 || y > H + 20) continue;
-      const s = sc[i];
-      const hl = Math.hypot(vx[i], vy[i]) + 1e-6, side = hl / (Math.hypot(hl, vz[i]) + 1e-6);
-      const flash = U.clamp(side * side * 0.3 + Math.min(1, turn[i] * 0.8) * 0.6 + fear[i] * 0.12, 0, 0.999);
-      const d = s < 0.75 ? 0 : s < 1.05 ? 1 : 2;
-      fishPath(paths[d * 4 + ((flash * 4) | 0)], x, y, vx[i] / hl, vy[i] / hl, L0 * s, side, phase[i]);
+    const NB = 7;
+    for (let b = 0; b < NB * 3; b++) paths[b] = new Path2D();
+    const L0 = 14 * Math.max(env.unit, 0.7);
+    for (const school of schools) {
+      const fl = school.fl;
+      const { sx, sy, sc, vx, vy, vz, turn, phase, fear, py } = fl;
+      for (let i = 0; i < fl.n; i++) {
+        const x = sx[i], y = sy[i];
+        if (x < -20 || x > W + 20 || y < -20 || y > H + 20) continue;
+        const s = sc[i];
+        const hl = Math.hypot(vx[i], vy[i]) + 1e-6, side = hl / (Math.hypot(hl, vz[i]) + 1e-6);
+        // value: dark silhouette (head-on / backlit) -> bright silver (flank to the light, rolling in a turn)
+        const roll = 0.5 + 0.5 * Math.sin(phase[i] * 0.09 + i * 0.37);
+        const v = U.clamp(side * side * 0.42 * roll + Math.min(1, turn[i] * 0.7) * 0.55 + fear[i] * 0.1 + (vy[i] < 0 ? 0.08 : -0.05), 0, 0.999);
+        const d = s < 0.75 ? 0 : s < 1.05 ? 1 : 2;
+        fishPath(paths[d * NB + ((v * NB) | 0)], x, y, vx[i] / hl, vy[i] / hl, L0 * s, side, phase[i]);
+      }
     }
-    const dark = [18, 34, 46], silver = [200, 220, 228];
+    const dark = [30, 34, 38], silver = [226, 232, 236];
     for (let d = 0; d < 3; d++) {
-      const haze = [0.5, 0.28, 0.08][d];
-      for (let b = 0; b < 4; b++) {
-        const col = U.mix(U.mix(dark, silver, (b + 0.5) / 4), bg.water, haze);
-        ctx.fillStyle = U.rgba(col, 0.94);
-        ctx.fill(paths[d * 4 + b]);
+      const haze = [0.42, 0.22, 0.06][d];
+      for (let b = 0; b < NB; b++) {
+        const col = U.mix(U.mix(dark, silver, Math.pow((b + 0.5) / NB, 1.2)), bg.water, haze);
+        ctx.fillStyle = U.rgba(col, 0.95);
+        ctx.fill(paths[d * NB + b]);
       }
     }
     // bubbles
@@ -186,6 +205,6 @@
     ctx.fill(); ctx.restore();
   }
 
-  S.audioState = function () { return { ag: U.clamp(fl.meanFear * 2.5, 0, 1) }; };
+  S.audioState = function () { let f = 0; for (const sc of schools) f = Math.max(f, sc.fl.meanFear); return { ag: U.clamp(f * 2.5, 0, 1) }; };
   M.scenes.fish = S;
 })();
