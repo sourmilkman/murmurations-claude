@@ -1,7 +1,7 @@
 /* Murmurations — shared utilities, procedural sprites, 3D flocking engine */
 (function () {
   const M = (window.M = window.M || {});
-  M.VERSION = '0.2.0';
+  M.VERSION = '0.3.0';
   M.scenes = M.scenes || {};
   M.sceneOrder = ['starlings', 'locusts', 'fish', 'smoke', 'clouds'];
 
@@ -78,6 +78,7 @@
     const f = { cap, n: 0 };
     ['px', 'py', 'pz', 'vx', 'vy', 'vz', 'fear', 'turn', 'phase', 'sx', 'sy', 'sc', 'hx', 'hy', 'pref', 'prefT', 'tresp'].forEach((k) => (f[k] = new Float32Array(cap)));
     const TB = 8192, head = new Int32Array(TB), next = new Int32Array(cap);
+    const kd = new Float32Array(16), ki = new Int32Array(16);
     const OX = [0, -1, 1, 0, 0, -1, -1, 1, 1], OY = [0, 0, 0, -1, 1, -1, 1, -1, 1];
     const hash = (ix, iy) => (Math.imul(ix, 73856093) ^ Math.imul(iy, 19349663)) & (TB - 1);
     f.add = function (x, y, z, vx, vy, vz) {
@@ -95,11 +96,14 @@
         f.add(f.px[j] + U.gauss() * spread, f.py[j] + U.gauss() * spread, f.pz[j] + U.gauss() * spread, f.vx[j], f.vy[j], f.vz[j]);
       }
     };
-    f.project = function (cx, cy, F, unit) {
+    f.project = function (cx, cy, F, unit, pitch) {
       const { px, py, pz, sx, sy, sc } = f;
+      const ca = Math.cos(pitch || 0), sa = Math.sin(pitch || 0);
       for (let i = 0; i < f.n; i++) {
-        const s = F / (F + pz[i]);
-        sc[i] = s; sx[i] = cx + px[i] * s * unit; sy[i] = cy + py[i] * s * unit;
+        // camera tilted up at the sky: distant birds sit lower, higher birds are farther away
+        const yc = py[i] * ca + pz[i] * sa, zc = pz[i] * ca - py[i] * sa;
+        const s = F / (F + Math.max(zc, -F * 0.7));
+        sc[i] = s; sx[i] = cx + px[i] * s * unit; sy[i] = cy + yc * s * unit;
       }
     };
     f.step = function (dt, P) {
@@ -107,14 +111,17 @@
       const inv = 1 / P.r;
       head.fill(-1);
       for (let i = 0; i < n; i++) { const h = hash(Math.floor(px[i] * inv), Math.floor(py[i] * inv)); next[i] = head[h]; head[h] = i; }
-      const r2 = P.r * P.r, s2 = P.sep * P.sep, T = P.target;
+      const r2 = P.r * P.r, s2 = P.sep * P.sep, T = P.target, K = Math.min(16, P.maxN);
       const decay = Math.pow(P.fearDecay, dt * 60);
       const preds = P.predators, np = preds.length;
-      let fearSum = 0, turnSum = 0;
+      let fearSum = 0, turnSum = 0, gx = 0, gy = 0, gz = 0;
+      const GC = P.gcoh || 0, gcx = f.gcx || 0, gcy = f.gcy || 0, gcz = f.gcz || 0;
+      const GA = P.gali || 0, gvx = f.gvx || 0, gvy = f.gvy || 0, gvz = f.gvz || 0;
+      let svx = 0, svy = 0, svz = 0;
       for (let i = 0; i < n; i++) {
         const x = px[i], y = py[i], z = pz[i];
         const ix = Math.floor(x * inv), iy = Math.floor(y * inv);
-        let cnt = 0, ax = 0, ay = 0, az = 0, cx = 0, cy = 0, cz = 0, ssx = 0, ssy = 0, ssz = 0, fm = 0, seen = 0, exam = 0;
+        let cnt = 0, ax = 0, ay = 0, az = 0, cx = 0, cy = 0, cz = 0, ssx = 0, ssy = 0, ssz = 0, fm = 0, seen = 0, exam = 0, kc = 0, km = 0;
         // own cell first, then the ring — so the nearest birds are found before the cap is hit
         outer: for (let o = 0; o < 9; o++) {
           let j = head[hash(ix + OX[o], iy + OY[o])];
@@ -123,7 +130,9 @@
               const dx = px[j] - x, dy = py[j] - y, dz = pz[j] - z;
               const d2 = dx * dx + dy * dy + dz * dz;
               if (d2 < r2) {
-                if (cnt < P.maxN) { cnt++; ax += vx[j]; ay += vy[j]; az += vz[j]; cx += dx; cy += dy; cz += dz; }
+                // keep the K nearest (topological interaction, as measured in real starling flocks)
+                if (kc < K) { kd[kc] = d2; ki[kc] = j; if (d2 > kd[km]) km = kc; kc++; }
+                else if (d2 < kd[km]) { kd[km] = d2; ki[km] = j; km = 0; for (let q = 1; q < K; q++) if (kd[q] > kd[km]) km = q; }
                 if (d2 < s2) { const q = 1 / (d2 + 0.5); ssx -= dx * q; ssy -= dy * q; ssz -= dz * q; }
                 if (fear[j] > fm) fm = fear[j];
                 if (++seen >= 40) break outer;
@@ -133,21 +142,47 @@
             j = next[j];
           }
         }
+        let md = 0;
+        for (let q = 0; q < kc; q++) {
+          const j = ki[q]; cnt++; ax += vx[j]; ay += vy[j]; az += vz[j];
+          cx += px[j] - x; cy += py[j] - y; cz += pz[j] - z; md += Math.sqrt(kd[q]);
+        }
         let fx = 0, fy = 0, fz = 0;
         const fr = fear[i];
         if (cnt) {
-          const wa = P.wAli * (1 + fr * P.fearAli), wc = P.wCoh * (1 + fr * 0.5);
+          // border birds (neighbours all on one side) pull inward hardest -> crisp, dense flock edges
+          const ol = Math.sqrt(cx * cx + cy * cy + cz * cz) / cnt, cen = ol / (md / cnt + 1e-3);
+          const wa = P.wAli * (1 + fr * P.fearAli), wc = P.wCoh * (1 + fr * 0.5) * (1 + (P.border || 0) * cen * cen);
           fx += (ax / cnt - vx[i]) * wa; fy += (ay / cnt - vy[i]) * wa; fz += (az / cnt - vz[i]) * wa;
           fx += (cx / cnt) * wc; fy += (cy / cnt) * wc; fz += (cz / cnt) * wc;
         }
         fx += ssx * P.wSep; fy += ssy * P.wSep; fz += ssz * P.wSep;
-        // soft ellipsoidal home range
-        const ex = (x - T.x) / T.rx, ey = (y - T.y) / T.ry, ez = (z - T.z) / T.rz;
-        const ed = Math.sqrt(ex * ex + ey * ey + ez * ez);
-        if (ed > 1) {
+        // weak whole-flock cohesion keeps one mass (birds track the flock's centre, not just 7 neighbours)
+        if (GC) { fx += (gcx - x) * GC; fy += (gcy - y) * GC; fz += (gcz - z) * GC; }
+        // ...and its mean heading, which damps sub-flocks orbiting each other so they re-merge
+        if (GA) { fx += (gvx - vx[i]) * GA; fy += (gvy - vy[i]) * GA; fz += (gvz - vz[i]) * GA; }
+        // random individual perturbation
+        if (P.noise) { fx += (Math.random() - 0.5) * P.noise; fy += (Math.random() - 0.5) * P.noise; fz += (Math.random() - 0.5) * P.noise; }
+        const G = P.goal;
+        if (G) {
+          // roost-seeking: each bird turns back independently once it strays past G.R -> folds, swoops, no orbiting ring
+          const dx = G.x - x, dy = G.y - y, dz = G.z - z, dl = Math.sqrt(dx * dx + dy * dy * 1.6 + dz * dz) + 1e-6;
+          const k = U.smooth(G.R * 0.6, G.R * 1.6, dl) * G.acc;
+          fx += (dx / dl) * k; fy += (dy / dl) * k; fz += (dz / dl) * k;
+        }
+        const ex = T ? (x - T.x) / T.rx : 0, ey = T ? (y - T.y) / T.ry : 0, ez = T ? (z - T.z) / T.rz : 0;
+        const ed = T ? Math.sqrt(ex * ex + ey * ey + ez * ez) : 0;
+        if (T && ed > 1) {
           const dx = T.x - x, dy = T.y - y, dz = T.z - z, dl = Math.sqrt(dx * dx + dy * dy + dz * dz) + 1e-6;
           const k = Math.min(ed - 1, 3) * P.contain;
           fx += (dx / dl) * k; fy += (dy / dl) * k; fz += (dz / dl) * k;
+        }
+        if (P.mill && T) {
+          // milling: circulation around the ball's vertical axis (bait-ball torus)
+          const mx = x - T.x, mz = z - T.z, ml = Math.sqrt(mx * mx + mz * mz) + 1e-3;
+          const k = P.mill * Math.min(1, ml / (T.rx * 0.35));
+          fx += (-mz / ml) * k; fz += (mx / ml) * k;
+          fx -= (mx / ml) * k * 0.25; fz -= (mz / ml) * k * 0.25;
         }
         // fear contagion (information transfer through neighbours -> waves)
         let nf = Math.max(fr * decay, fm * P.fearSpread - 0.015);
@@ -196,8 +231,9 @@
         turn[i] = turn[i] * 0.9 + Math.min(cr, 6) * 0.1;
         hx[i] = nhx; hy[i] = nhy;
         phase[i] += dt * P.flap * (1 + nf * 0.8 + (Math.random() - 0.5) * 0.2);
-        fearSum += nf; turnSum += turn[i];
+        fearSum += nf; turnSum += turn[i]; gx += px[i]; gy += py[i]; gz += pz[i]; svx += vx[i]; svy += vy[i]; svz += vz[i];
       }
+      if (n) { f.gcx = gx / n; f.gcy = gy / n; f.gcz = gz / n; f.gvx = svx / n; f.gvy = svy / n; f.gvz = svz / n; }
       f.meanFear = n ? fearSum / n : 0;
       f.meanTurn = n ? turnSum / n : 0;
     };
