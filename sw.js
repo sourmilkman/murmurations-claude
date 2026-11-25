@@ -1,5 +1,5 @@
 /* Murmurations service worker — offline-first */
-const VERSION = 'murmurations-v0.6.0';
+const VERSION = 'murmurations-v0.6.1';
 const ASSETS = [
   './', 'index.html', 'manifest.webmanifest',
   'js/noise.js', 'js/core.js', 'js/audio.js', 'js/caustics.js', 'js/main.js',
@@ -21,6 +21,17 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
   if (req.url.endsWith('.json')) { e.respondWith(fetch(req).catch(() => caches.match(req))); return; }
+  const url = new URL(req.url);
+  const isCode = req.mode === 'navigate' || /\.(html|js|webmanifest)$/.test(url.pathname) || url.pathname.endsWith('/');
+  if (isCode) {
+    // code: network first, so a new version shows up on the next load; cache is the offline fallback
+    e.respondWith(fetch(req).then((res) => {
+      if (res.ok && res.type === 'basic') { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); }
+      return res;
+    }).catch(() => caches.match(req, { ignoreSearch: true }).then((hit) => hit || caches.match('index.html'))));
+    return;
+  }
+  // images & other assets: cache first
   e.respondWith(
     caches.match(req, { ignoreSearch: true }).then((hit) => hit || fetch(req).then((res) => {
       if (res.ok && res.type === 'basic') { const copy = res.clone(); caches.open(VERSION).then((c) => c.put(req, copy)); }

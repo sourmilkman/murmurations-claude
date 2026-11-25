@@ -2,7 +2,7 @@
 
 An ambient, interactive PWA: starling murmurations, a locust swarm, a school of bait fish, smoke from a smouldering leaf pile, and fair-weather clouds — each over swappable photographic environments with generative soundscapes.
 
-**Build:** v0.6.0 · **Live:** https://sourmilkman.github.io/murmurations-claude/
+**Build:** v0.6.1 · **Live:** https://sourmilkman.github.io/murmurations-claude/
 
 ## Behaviour
 | Scene | Motion model | Touch / hover |
